@@ -18,7 +18,8 @@ Ver `docs/03-service-principal-federated.md` para detalhes completos. **TL;DR:**
 
 - ✅ Capítulo 02 concluído — RG `rg-lab-avancado` existe e tags `cost-center=apex-helpsphere-ia environment=lab application=helpsphere-ia` aplicadas
 - ✅ Capítulo 03 concluído — Service Principal `sp-github-actions-helpsphere` criado com role **Contributor** scoped em `rg-lab-avancado` + 2 federated credentials (main branch + pull_request)
-- ✅ Capítulo 04 concluído — Bicep modules em `infra/main.bicep` + `infra/modules/{apim,content-safety,app-insights,policy}.bicep` + parameter files `infra/envs/{staging,prod}.parameters.json` committed
+- ✅ Capítulo 04a concluído — Bicep modules em `infra/main.bicep` + `infra/modules/{apim,content-safety,app-insights,policy}.bicep`
+- ✅ Capítulo 04b concluído — parameter files `infra/envs/{dev,staging,prod}.parameters.json` validados via `az bicep build` + `what-if`, commit local consolidado pronto pra push
 - ✅ GitHub Secrets registrados no repo `helpsphere-ia` (cravados no Capítulo 03):
   - `AZURE_TENANT_ID`
   - `AZURE_SUBSCRIPTION_ID`
