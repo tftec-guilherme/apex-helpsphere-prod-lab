@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.venv/
+.env
+.azure/
+*.log
+node_modules/
+.vscode/
+.idea/
+*.swp
+.DS_Store
+infra/main.json
+src/agent/local.settings.json
+eval/.cache/
+*.bicepconfig.json.bak
