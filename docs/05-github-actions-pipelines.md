@@ -116,14 +116,16 @@ jobs:
 
 > **Alternativa via VS Code + git push (recomendado se você prefere editor local):**
 >
-> ```bash
+> ```powershell
 > # Na raiz do clone local de helpsphere-ia
-> mkdir -p .github/workflows
+> New-Item -ItemType Directory -Path .github/workflows -Force | Out-Null
 > # Cole o YAML acima em .github/workflows/ci.yml usando seu editor preferido
 > git add .github/workflows/ci.yml
 > git commit -m "feat: GitHub Actions CI workflow"
 > git push origin main
 > ```
+>
+> **Linux/Mac/WSL:** troque `New-Item -ItemType Directory -Path X -Force | Out-Null` por `mkdir -p X`.
 
 > **Custo:** GitHub Actions é gratuito em repos públicos · em repos privados, conta para 2.000 minutos/mês free tier · provisão Azure aqui é **zero** (apenas `bicep build` + `what-if` que são read-only)
 
@@ -214,13 +216,15 @@ jobs:
 
 > **Alternativa via VS Code + git push:**
 >
-> ```bash
+> ```powershell
 > # Na raiz do clone local
 > # Cole o YAML acima em .github/workflows/cd-staging.yml
 > git add .github/workflows/cd-staging.yml
 > git commit -m "feat: GitHub Actions CD Staging workflow"
 > git push origin main
 > ```
+>
+> **Linux/Mac/WSL:** comandos `git` são idênticos; nenhuma adaptação necessária aqui.
 
 > **Custo:** zero overhead GitHub Actions · custo Azure depende do que o Bicep deploya (APIM Developer = R$ 250/mês se ficar ligado — provisione e delete no mesmo dia, ver Capítulo 10)
 
@@ -427,7 +431,7 @@ Quando você commitou `cd-staging.yml` no Passo 5.2, o workflow já **disparou a
 
 > **Alternativa via gh CLI (trigger workflow):**
 >
-> ```bash
+> ```powershell
 > # Disparar workflow manualmente
 > gh workflow run cd-prod.yml --ref main -f confirm=deploy-prod
 >
@@ -436,17 +440,19 @@ Quando você commitou `cd-staging.yml` no Passo 5.2, o workflow já **disparou a
 >
 > # gh CLI não tem comando nativo pra approve — use UI ou API REST:
 > # POST /repos/{owner}/{repo}/actions/runs/{run_id}/pending_deployments
-> gh api -X POST repos/<owner>/<repo>/actions/runs/<run_id>/pending_deployments \
->   -f environment_ids='[<env_id>]' \
->   -f state=approved \
+> gh api -X POST repos/<owner>/<repo>/actions/runs/<run_id>/pending_deployments `
+>   -f environment_ids='[<env_id>]' `
+>   -f state=approved `
 >   -f comment='Approved via CLI'
 > ```
+>
+> **Linux/Mac/WSL:** troque `` ` `` (backtick) por `\` para continuação de linha.
 
 ---
 
 ## Validação end-to-end
 
-```bash
+```powershell
 # 1. Trigger CI manual via gh CLI
 gh workflow run ci.yml --ref main
 
@@ -463,6 +469,8 @@ gh workflow run cd-prod.yml --ref main -f confirm=deploy-prod
 az apim list -g rg-lab-avancado --query "[].{name:name, state:provisioningState, sku:sku.name}" -o table
 # Esperado: name=apim-helpsphere-staging, state=Succeeded, sku=Developer
 ```
+
+> **Linux/Mac/WSL:** comandos `gh` e `az` aceitam a mesma sintaxe — não há adaptação necessária neste bloco.
 
 ---
 

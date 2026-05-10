@@ -43,9 +43,11 @@
 
 1. Na raiz do clone local de `helpsphere-ia`, crie a estrutura de pastas:
 
-   ```bash
-   mkdir -p infra/modules infra/envs
+   ```powershell
+   New-Item -ItemType Directory -Force -Path infra/modules, infra/envs | Out-Null
    ```
+
+   > **Linux/Mac/WSL:** `mkdir -p infra/modules infra/envs`
 
 2. Crie o arquivo `infra/main.bicep` com o conteúdo abaixo:
 
@@ -543,11 +545,13 @@ helpsphere-ia/
 └── ...
 ```
 
-```bash
+```powershell
 # Verificar:
-ls -la infra/ infra/modules/
+Get-ChildItem -Force infra/, infra/modules/
 # Esperado: 5 arquivos .bicep total (1 main + 4 modules)
 ```
+
+> **Linux/Mac/WSL:** `ls -la infra/ infra/modules/`
 
 ---
 

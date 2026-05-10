@@ -86,21 +86,25 @@ Antes de detonar tudo, baixe localmente o que tem valor pedagógico/portfolio:
 3. **Cost Analysis snapshot:** Portal → `rg-lab-avancado` → Cost analysis → **Daily costs (last 7 days)** → exportar CSV
 4. **APIM policy XML:** APIM → APIs → HelpSphere Agent API → Policy editor → copiar todo o XML para `docs/portfolio/apim-policy.xml` no clone local
 
-```bash
-# Bash — backup local antes do cleanup
-mkdir -p ~/portfolio/helpsphere-ia-cleanup-snapshot
-cd ~/portfolio/helpsphere-ia-cleanup-snapshot
+```powershell
+# PowerShell — backup local antes do cleanup
+New-Item -ItemType Directory -Path "$HOME/portfolio/helpsphere-ia-cleanup-snapshot" -Force | Out-Null
+Set-Location "$HOME/portfolio/helpsphere-ia-cleanup-snapshot"
 
 # Exportar resultado do último run
 gh run download --repo <seu-username>/helpsphere-ia --name eval-results-staging
 
 # Exportar últimos custos como CSV
-az consumption usage list \
-  --start-date $(date -d "30 days ago" +%Y-%m-%d) \
-  --end-date $(date +%Y-%m-%d) \
-  --query "[?contains(instanceName, 'helpsphere')].{date:usageStart, resource:instanceName, cost:pretaxCost}" \
-  -o tsv > usage-pre-cleanup.tsv
+$StartDate = (Get-Date).AddDays(-30).ToString("yyyy-MM-dd")
+$EndDate = (Get-Date).ToString("yyyy-MM-dd")
+az consumption usage list `
+  --start-date $StartDate `
+  --end-date $EndDate `
+  --query "[?contains(instanceName, 'helpsphere')].{date:usageStart, resource:instanceName, cost:pretaxCost}" `
+  -o tsv | Out-File -FilePath usage-pre-cleanup.tsv -Encoding utf8
 ```
+
+> **Linux/Mac/WSL:** troque `New-Item` por `mkdir -p`, `Set-Location` por `cd`, `$HOME` por `~`, `(Get-Date).AddDays(-30).ToString("yyyy-MM-dd")` por `$(date -d "30 days ago" +%Y-%m-%d)`, `` ` `` por `\`, e `| Out-File` por `> file`.
 
 > **Custo:** R$ 0 — exports são read-only.
 
@@ -124,19 +128,22 @@ Por que primeiro? Token federated em uso para de funcionar instantaneamente. CI 
 
 > **Alternativa via Azure CLI (limpa as 2 entidades — App + SP — e federated credentials cascade):**
 >
-> ```bash
-> APP_ID=$(az ad app list --display-name "sp-github-actions-helpsphere" --query "[0].appId" -o tsv)
+> ```powershell
+> $AppId = az ad app list --display-name "sp-github-actions-helpsphere" --query "[0].appId" -o tsv
 >
 > # 1. Deletar SP (instância no tenant)
-> az ad sp delete --id "$APP_ID" 2>/dev/null || echo "(SP já removido — OK)"
+> az ad sp delete --id $AppId 2>$null
+> if ($LASTEXITCODE -ne 0) { Write-Host "(SP já removido — OK)" }
 >
 > # 2. Deletar App Registration (definição) — federated credentials morrem junto
-> az ad app delete --id "$APP_ID"
+> az ad app delete --id $AppId
 >
 > # 3. Confirmar que sumiu
 > az ad app list --display-name "sp-github-actions-helpsphere" --query "length(@)"
 > # Esperado: 0
 > ```
+>
+> **Linux/Mac/WSL:** troque `$AppId =` por `APP_ID=$(...)`, `2>$null` por `2>/dev/null`, `$LASTEXITCODE` por `$?`, e `Write-Host` por `echo`.
 
 > **Custo:** R$ 0 — App Registrations e Federated Credentials são gratuitos no Entra. Deletar não tem fee.
 
@@ -159,28 +166,31 @@ APIM Developer demora **~30 min** para deletar mesmo via `--no-wait`. Iniciar ag
 
 > **Alternativa via Azure CLI (paralelo + async):**
 >
-> ```bash
+> ```powershell
 > # Dispara delete em background — você segue para Passo 10.4 imediatamente
-> az apim delete \
->   --name apim-helpsphere-staging \
->   --resource-group rg-lab-avancado \
->   --no-wait \
+> az apim delete `
+>   --name apim-helpsphere-staging `
+>   --resource-group rg-lab-avancado `
+>   --no-wait `
 >   --yes
 >
 > # Se subiu apim-helpsphere-prod também:
-> az apim delete \
->   --name apim-helpsphere-prod \
->   --resource-group rg-lab-avancado \
->   --no-wait \
->   --yes 2>/dev/null || true
+> az apim delete `
+>   --name apim-helpsphere-prod `
+>   --resource-group rg-lab-avancado `
+>   --no-wait `
+>   --yes 2>$null
 >
 > # Status da operação async
-> az apim show \
->   --name apim-helpsphere-staging \
->   --resource-group rg-lab-avancado \
->   --query "provisioningState" -o tsv 2>&1 || echo "✅ APIM deletado ou em deletion final"
+> $State = az apim show `
+>   --name apim-helpsphere-staging `
+>   --resource-group rg-lab-avancado `
+>   --query "provisioningState" -o tsv 2>&1
+> if ($LASTEXITCODE -ne 0) { Write-Host "✅ APIM deletado ou em deletion final" } else { Write-Host $State }
 > # Durante delete: "Deleting" · após: erro ResourceNotFound (esperado)
 > ```
+>
+> **Linux/Mac/WSL:** troque `` ` `` por `\`, `2>$null` por `2>/dev/null`, `$LASTEXITCODE` por `$?`, e `Write-Host` por `echo`.
 
 > **Custo:** zero adicional — delete é gratuito · billing **para de cobrar** quando `provisioningState=Deleting` (não no `Deleted` final).
 
@@ -211,28 +221,34 @@ Esses recursos **não cobram parados** — limpá-los é higiene de inventário,
 
 > **Alternativa via Azure CLI (1 bloco):**
 >
-> ```bash
+> ```powershell
 > # 1. Budget
-> az consumption budget delete --budget-name budget-helpsphere-ia 2>/dev/null \
->   || echo "(budget já removido ou ainda processando)"
+> az consumption budget delete --budget-name budget-helpsphere-ia 2>$null
+> if ($LASTEXITCODE -ne 0) { Write-Host "(budget já removido ou ainda processando)" }
 >
 > # 2. Action Group
-> az monitor action-group delete \
->   --name ag-helpsphere-ia-alerts \
->   --resource-group rg-lab-avancado 2>/dev/null \
->   || echo "(action group já removido)"
+> az monitor action-group delete `
+>   --name ag-helpsphere-ia-alerts `
+>   --resource-group rg-lab-avancado 2>$null
+> if ($LASTEXITCODE -ne 0) { Write-Host "(action group já removido)" }
 >
 > # 3. Policy assignments scoped no RG
-> SCOPE="/subscriptions/$(az account show --query id -o tsv)/resourceGroups/rg-lab-avancado"
-> for NAME in $(az policy assignment list --scope "$SCOPE" --query "[].name" -o tsv); do
->   az policy assignment delete --name "$NAME" --scope "$SCOPE"
->   echo "Deleted: $NAME"
-> done
+> $SubId = az account show --query id -o tsv
+> $Scope = "/subscriptions/$SubId/resourceGroups/rg-lab-avancado"
+> $Names = az policy assignment list --scope $Scope --query "[].name" -o tsv
+> foreach ($Name in $Names -split "`n") {
+>   if ($Name) {
+>     az policy assignment delete --name $Name --scope $Scope
+>     Write-Host "Deleted: $Name"
+>   }
+> }
 >
 > # 4. Confirmar
-> az policy assignment list --scope "$SCOPE" --query "length(@)"
+> az policy assignment list --scope $Scope --query "length(@)"
 > # Esperado: 0
 > ```
+>
+> **Linux/Mac/WSL:** troque `$Var =` por `VAR=$(...)`, `` ` `` por `\`, `2>$null` por `2>/dev/null`, `$LASTEXITCODE` por `$?`, `Write-Host` por `echo`, e o `foreach`/`-split` por `for NAME in $(...); do ... done`.
 
 > **Custo:** R$ 0 — todos os 3 (Budget, Action Group, Policy Assignment) são gratuitos. Cleanup é organizacional.
 
@@ -258,16 +274,18 @@ Com APIM já em deletion (Passo 10.3) e satellites limpos (Passo 10.4), agora o 
 
 > **Alternativa via Azure CLI:**
 >
-> ```bash
+> ```powershell
 > az group delete --name rg-lab-avancado --yes --no-wait
 >
 > # Polling
-> while az group exists --name rg-lab-avancado | grep -q true; do
->   echo "$(date +%H:%M:%S) — RG ainda existe, aguardando..."
->   sleep 60
-> done
-> echo "✅ rg-lab-avancado deletado"
+> while ((az group exists --name rg-lab-avancado) -eq "true") {
+>   Write-Host "$(Get-Date -Format HH:mm:ss) — RG ainda existe, aguardando..."
+>   Start-Sleep -Seconds 60
+> }
+> Write-Host "✅ rg-lab-avancado deletado"
 > ```
+>
+> **Linux/Mac/WSL:** troque o `while` por `while az group exists --name rg-lab-avancado | grep -q true; do`, `Write-Host` por `echo`, `Get-Date -Format HH:mm:ss` por `$(date +%H:%M:%S)`, e `Start-Sleep -Seconds 60` por `sleep 60`.
 
 > **Custo:** zero adicional — delete é gratuito.
 
@@ -297,30 +315,33 @@ Mesmo com SP deletado, os 4 secrets + 4 vars + 2 environments ficam no repo. Lim
 
 > **Alternativa via gh CLI (mais rápido):**
 >
-> ```bash
-> REPO="<seu-username>/helpsphere-ia"
+> ```powershell
+> $Repo = "<seu-username>/helpsphere-ia"
 >
 > # 1. Deletar 4 repository secrets
-> for S in AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID AZURE_CLIENT_ID AOAI_API_KEY; do
->   gh secret delete "$S" --repo "$REPO" 2>/dev/null || echo "(secret $S já removido)"
-> done
+> foreach ($S in @("AZURE_TENANT_ID", "AZURE_SUBSCRIPTION_ID", "AZURE_CLIENT_ID", "AOAI_API_KEY")) {
+>   gh secret delete $S --repo $Repo 2>$null
+>   if ($LASTEXITCODE -ne 0) { Write-Host "(secret $S já removido)" }
+> }
 >
 > # 2. Deletar environment variables (staging)
-> gh variable delete AOAI_ENDPOINT --repo "$REPO" --env staging 2>/dev/null || true
-> gh variable delete AGENT_FUNCTION_URL_STAGING --repo "$REPO" --env staging 2>/dev/null || true
+> gh variable delete AOAI_ENDPOINT --repo $Repo --env staging 2>$null
+> gh variable delete AGENT_FUNCTION_URL_STAGING --repo $Repo --env staging 2>$null
 >
 > # 3. Deletar environment variables (production)
-> gh variable delete AOAI_ENDPOINT --repo "$REPO" --env production 2>/dev/null || true
-> gh variable delete AGENT_FUNCTION_URL_PROD --repo "$REPO" --env production 2>/dev/null || true
+> gh variable delete AOAI_ENDPOINT --repo $Repo --env production 2>$null
+> gh variable delete AGENT_FUNCTION_URL_PROD --repo $Repo --env production 2>$null
 >
 > # 4. Deletar os 2 environments inteiros
-> gh api -X DELETE "repos/$REPO/environments/staging" 2>/dev/null || true
-> gh api -X DELETE "repos/$REPO/environments/production" 2>/dev/null || true
+> gh api -X DELETE "repos/$Repo/environments/staging" 2>$null
+> gh api -X DELETE "repos/$Repo/environments/production" 2>$null
 >
 > # 5. Confirmar
-> gh secret list --repo "$REPO"
+> gh secret list --repo $Repo
 > # Esperado: vazio
 > ```
+>
+> **Linux/Mac/WSL:** troque `$Var =` por `VAR=`, `foreach`/`@(...)` por `for S in ...; do ... done`, `2>$null` por `2>/dev/null`, `$LASTEXITCODE` por `$?`, `Write-Host` por `echo`, e referências `$Var` por `"$VAR"`.
 
 > **Custo:** R$ 0 — GitHub.
 
@@ -336,7 +357,7 @@ Se mesmo assim quer deletar:
 
 **Pré-requisito:** `gh auth status` deve mostrar scope `delete_repo`. Se não tem:
 
-```bash
+```powershell
 gh auth refresh -s delete_repo,repo,workflow
 # Abre browser, confirme novo escopo
 ```
@@ -351,7 +372,7 @@ gh auth refresh -s delete_repo,repo,workflow
 
 > **Alternativa via gh CLI (com scope `delete_repo`):**
 >
-> ```bash
+> ```powershell
 > gh repo delete <seu-username>/helpsphere-ia --yes
 > ```
 
@@ -371,7 +392,7 @@ gh auth refresh -s delete_repo,repo,workflow
 
 <!-- screenshot: cap10-passo10.8-cost-analysis-zeroed.png -->
 
-```bash
+```powershell
 # 1. Confirmar RG sumiu
 az group exists --name rg-lab-avancado
 # Esperado: false
@@ -385,8 +406,9 @@ az resource list --tag application=helpsphere-ia -o table
 # Esperado: vazio (ou só recursos do Lab Inter que NÃO devem ser deletados)
 
 # 4. Confirmar nenhum policy assignment scoped no RG órfão (em scope subscription)
-az policy assignment list \
-  --scope "/subscriptions/$(az account show --query id -o tsv)" \
+$SubId = az account show --query id -o tsv
+az policy assignment list `
+  --scope "/subscriptions/$SubId" `
   --query "[?contains(scope, 'rg-lab-avancado')].name" -o tsv
 # Esperado: vazio
 
@@ -395,13 +417,17 @@ gh secret list --repo <seu-username>/helpsphere-ia
 # Esperado: vazio (ou erro se repo deletado — ambos OK)
 
 # 6. Custo último 7 dias
-az consumption usage list \
-  --start-date $(date -d "7 days ago" +%Y-%m-%d) \
-  --end-date $(date +%Y-%m-%d) \
-  --query "[?contains(instanceName, 'helpsphere-ia')].{day:usageStart, resource:instanceName, cost:pretaxCost}" \
+$StartDate = (Get-Date).AddDays(-7).ToString("yyyy-MM-dd")
+$EndDate = (Get-Date).ToString("yyyy-MM-dd")
+az consumption usage list `
+  --start-date $StartDate `
+  --end-date $EndDate `
+  --query "[?contains(instanceName, 'helpsphere-ia')].{day:usageStart, resource:instanceName, cost:pretaxCost}" `
   -o table
 # Esperado: lista decrescente, próximos R$ 0 nos últimos 1-2 dias
 ```
+
+> **Linux/Mac/WSL:** troque `$SubId =` por inline `$(az account show --query id -o tsv)`, `(Get-Date).AddDays(-7).ToString("yyyy-MM-dd")` por `$(date -d "7 days ago" +%Y-%m-%d)`, e `` ` `` por `\`.
 
 > **Economia validada — exemplo real medido na gravação:**
 >
@@ -430,7 +456,7 @@ az consumption usage list \
 
 ## Validação end-to-end
 
-```bash
+```powershell
 # 1. RG, SP, Policy, Budget, AG todos limpos
 az group exists --name rg-lab-avancado                                   # false
 az ad app list --display-name "sp-github-actions-helpsphere" -o tsv      # vazio
@@ -441,12 +467,16 @@ az monitor action-group list -g rg-lab-avancado 2>&1                     # Resou
 gh secret list --repo <seu-username>/helpsphere-ia 2>&1                  # vazio ou erro 404
 
 # 3. Custo zerado (após 24-48h)
-az consumption usage list \
-  --start-date $(date -d "1 day ago" +%Y-%m-%d) \
-  --end-date $(date +%Y-%m-%d) \
+$StartDate = (Get-Date).AddDays(-1).ToString("yyyy-MM-dd")
+$EndDate = (Get-Date).ToString("yyyy-MM-dd")
+az consumption usage list `
+  --start-date $StartDate `
+  --end-date $EndDate `
   --query "[?contains(instanceName, 'helpsphere-ia')]" -o table
 # Esperado: vazio
 ```
+
+> **Linux/Mac/WSL:** troque `$StartDate =` por inline `$(date -d "1 day ago" +%Y-%m-%d)`, `$EndDate =` por `$(date +%Y-%m-%d)`, e `` ` `` por `\`.
 
 ---
 

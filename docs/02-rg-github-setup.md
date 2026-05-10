@@ -59,19 +59,21 @@
 
 > **Alternativa via Azure CLI:**
 >
-> ```bash
-> az group create \
->   --name rg-lab-avancado \
->   --location eastus2 \
->   --tags \
->     cost-center=apex-helpsphere-ia \
->     environment=lab \
->     application=helpsphere-ia \
+> ```powershell
+> az group create `
+>   --name rg-lab-avancado `
+>   --location eastus2 `
+>   --tags `
+>     cost-center=apex-helpsphere-ia `
+>     environment=lab `
+>     application=helpsphere-ia `
 >     owner="<seu-email>"
 >
 > # Validar criação + tags aplicadas
 > az group show --name rg-lab-avancado --query "{name:name, location:location, tags:tags}" -o jsonc
 > ```
+>
+> **Linux/Mac/WSL:** troque `` ` `` por `\` no fim das linhas.
 
 > **Custo:** Resource Groups são **gratuitos** (são containers lógicos, sem billing próprio). Os recursos **dentro** do RG são cobrados — neste Capítulo, ainda nada custa. APIM Developer (~R$ 250/mês ligado, Capítulo 06) e Content Safety (~R$ 50-100/mês, Capítulo 07) entram depois.
 
@@ -104,19 +106,21 @@ Este lab é IaC end-to-end — Bicep + workflows + Python vivem num repo GitHub 
 
 > **Alternativa via gh CLI (criar repo direto da máquina sem abrir browser):**
 >
-> ```bash
+> ```powershell
 > # Criar repo já com .gitignore Python + README + clone local em uma só call
-> gh repo create helpsphere-ia \
->   --private \
->   --description "Lab Avançado D06 — IA Production-grade (Apex HelpSphere)" \
->   --gitignore Python \
->   --add-readme \
+> gh repo create helpsphere-ia `
+>   --private `
+>   --description "Lab Avançado D06 — IA Production-grade (Apex HelpSphere)" `
+>   --gitignore Python `
+>   --add-readme `
 >   --clone
 >
-> cd helpsphere-ia
+> Set-Location helpsphere-ia
 > ```
 >
 > Funciona se você já tem `gh` autenticado (`gh auth status` mostrando scopes `repo` + `workflow`). Se faltar `workflow`, rode `gh auth refresh -s workflow`.
+>
+> **Linux/Mac/WSL:** troque `` ` `` por `\` no fim das linhas e `Set-Location` por `cd`.
 
 > **Custo:** GitHub Free tier inclui repos privados ilimitados + **2.000 minutos/mês** de GitHub Actions em repos privados (em públicos é ilimitado). Este lab consome ~50-100 min/mês em rodadas de CI — você fica longe do limite.
 
@@ -126,18 +130,22 @@ Este lab é IaC end-to-end — Bicep + workflows + Python vivem num repo GitHub 
 
 ## Passo 2.3 — Clonar repo + estruturar pastas IaC
 
-**No terminal local (PowerShell ou bash):**
+**No terminal local (Windows PowerShell 7):**
 
-```bash
+```powershell
 # 1. Clone (substitua <seu-username>)
 git clone https://github.com/<seu-username>/helpsphere-ia.git
-cd helpsphere-ia
+Set-Location helpsphere-ia
 
 # 2. Criar estrutura canônica de pastas
-mkdir -p .github/workflows infra/modules infra/envs src/agent src/mcp-server src/functions eval docs
+New-Item -ItemType Directory -Force -Path `
+  ".github\workflows", "infra\modules", "infra\envs", `
+  "src\agent", "src\mcp-server", "src\functions", `
+  "eval", "docs" | Out-Null
 
 # 3. Substituir README default por README customizado
-cat > README.md << 'EOF'
+# Here-string @'...'@ — fechamento na coluna 0 obrigatório
+Set-Content -Path README.md -Value @'
 # HelpSphere IA — Production Stack
 
 Stack production-ready de IA para HelpSphere Apex (Lab Avançado D06).
@@ -163,10 +171,10 @@ Ver `docs/RUNBOOK.md` (criado no Capítulo 09).
 ## Deploy
 
 CI/CD via GitHub Actions com OIDC federated (Capítulo 05). Sem secrets de Azure no repo.
-EOF
+'@
 
 # 4. Append IaC-specifics ao .gitignore Python que o GitHub criou
-cat >> .gitignore << 'EOF'
+Add-Content -Path .gitignore -Value @'
 
 # Lab Avançado D06 specifics
 .azure/
@@ -176,7 +184,7 @@ sp-credentials.json
 node_modules/
 .env
 .env.local
-EOF
+'@
 
 # 5. Commit + push
 git add .
@@ -186,25 +194,31 @@ git push origin main
 
 <!-- screenshot: cap02-passo2.3-folder-structure-vscode.png -->
 
-> **Alternativa via PowerShell (Windows nativo, sem heredoc bash):**
+> **Alternativa Linux/Mac/WSL (bash):**
 >
-> ```powershell
-> # Mesmo workflow, mas usando New-Item + Set-Content
-> New-Item -ItemType Directory -Path ".github\workflows", "infra\modules", "infra\envs", "src\agent", "src\mcp-server", "src\functions", "eval", "docs" -Force
+> ```bash
+> # Mesmo workflow com utilitários POSIX (mkdir -p + cat heredoc)
+> git clone https://github.com/<seu-username>/helpsphere-ia.git
+> cd helpsphere-ia
 >
-> # README via Set-Content (com here-string @'...'@ — fechamento na coluna 0)
-> Set-Content -Path README.md -Value @'
+> mkdir -p .github/workflows infra/modules infra/envs src/agent src/mcp-server src/functions eval docs
+>
+> cat > README.md << 'EOF'
 > # HelpSphere IA — Production Stack
 > ...
-> '@
+> EOF
 >
-> # Append .gitignore via Add-Content
-> Add-Content -Path .gitignore -Value @'
+> cat >> .gitignore << 'EOF'
 >
 > # Lab Avançado D06 specifics
 > .azure/
 > sp-credentials.json
-> '@
+> *.bicepparam.local
+> *.log
+> node_modules/
+> .env
+> .env.local
+> EOF
 >
 > git add .
 > git commit -m "feat: initial scaffold helpsphere-ia"
@@ -241,10 +255,10 @@ Branch protection garante que **ninguém commita direto em `main`** — todo pus
 
 > **Alternativa via gh CLI (API REST):**
 >
-> ```bash
-> # gh CLI não tem comando nativo `gh branch protect`, mas você pode via gh api:
-> gh api -X PUT repos/<seu-username>/helpsphere-ia/branches/main/protection \
->   --input - << 'EOF'
+> ```powershell
+> # gh CLI não tem comando nativo `gh branch protect`, mas você pode via gh api.
+> # PowerShell: passa JSON via arquivo temporário (mais robusto que pipe + heredoc).
+> $ProtectionJson = @'
 > {
 >   "required_status_checks": null,
 >   "enforce_admins": false,
@@ -255,12 +269,20 @@ Branch protection garante que **ninguém commita direto em `main`** — todo pus
 >   "restrictions": null,
 >   "required_conversation_resolution": true
 > }
-> EOF
+> '@
+> $ProtectionJson | Set-Content -Path protection.json -Encoding utf8
+>
+> gh api -X PUT repos/<seu-username>/helpsphere-ia/branches/main/protection `
+>   --input protection.json
+>
+> Remove-Item protection.json
 >
 > # Validar protection ativa
-> gh api repos/<seu-username>/helpsphere-ia/branches/main/protection \
+> gh api repos/<seu-username>/helpsphere-ia/branches/main/protection `
 >   --jq '{required_pull_request_reviews, required_conversation_resolution}'
 > ```
+>
+> **Linux/Mac/WSL:** versão bash equivalente usa `--input - << 'EOF' ... EOF` heredoc inline e `\` no fim das linhas.
 
 > **Custo:** zero — branch protection é feature do GitHub Free tier.
 
@@ -294,10 +316,10 @@ Branch protection garante que **ninguém commita direto em `main`** — todo pus
 
 ## Validação end-to-end
 
-```bash
+```powershell
 # 1. RG criado + tags aplicadas
-az group show --name rg-lab-avancado \
-  --query "{name:name, location:location, state:properties.provisioningState, costCenter:tags.\"cost-center\"}" \
+az group show --name rg-lab-avancado `
+  --query "{name:name, location:location, state:properties.provisioningState, costCenter:tags.\`"cost-center\`"}" `
   -o table
 # Esperado:
 # Name              Location  State      CostCenter
@@ -305,20 +327,22 @@ az group show --name rg-lab-avancado \
 # rg-lab-avancado   eastus2   Succeeded  apex-helpsphere-ia
 
 # 2. Repo GitHub existe + é privado
-gh repo view <seu-username>/helpsphere-ia --json name,visibility,defaultBranchRef \
+gh repo view <seu-username>/helpsphere-ia --json name,visibility,defaultBranchRef `
   --jq '{name, visibility, default_branch: .defaultBranchRef.name}'
 # Esperado: { "name": "helpsphere-ia", "visibility": "PRIVATE", "default_branch": "main" }
 
 # 3. Estrutura de pastas committed
-gh api repos/<seu-username>/helpsphere-ia/contents \
+gh api repos/<seu-username>/helpsphere-ia/contents `
   --jq '[.[] | select(.type == "dir") | .name]'
 # Esperado: [".github", "docs", "eval", "infra", "src"]
 
 # 4. Branch protection ativa
-gh api repos/<seu-username>/helpsphere-ia/branches/main/protection \
+gh api repos/<seu-username>/helpsphere-ia/branches/main/protection `
   --jq '.required_pull_request_reviews.required_approving_review_count'
 # Esperado: 1
 ```
+
+> **Linux/Mac/WSL:** troque `` ` `` por `\` no fim das linhas e remova os escapes `` \` `` ao redor de `"cost-center"`.
 
 ---
 

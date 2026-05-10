@@ -83,22 +83,24 @@ GitHub Actions precisa de identidade Azure para deployar via Bicep. Criamos um *
 
 > **Alternativa via Azure CLI (mais rápido — cria App + SP + role assignment numa só chamada):**
 >
-> ```bash
-> SUBSCRIPTION_ID=$(az account show --query id -o tsv)
-> TENANT_ID=$(az account show --query tenantId -o tsv)
+> ```powershell
+> $SubscriptionId = az account show --query id -o tsv
+> $TenantId = az account show --query tenantId -o tsv
 >
-> SP_JSON=$(az ad sp create-for-rbac \
->   --name "sp-github-actions-helpsphere" \
->   --role Contributor \
->   --scopes "/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/rg-lab-avancado" \
->   --json-auth)
+> $SpJson = az ad sp create-for-rbac `
+>   --name "sp-github-actions-helpsphere" `
+>   --role Contributor `
+>   --scopes "/subscriptions/$SubscriptionId/resourceGroups/rg-lab-avancado" `
+>   --json-auth
 >
 > # NÃO comite este arquivo — já está no .gitignore do Capítulo 02
-> echo "$SP_JSON" > sp-credentials.json
+> $SpJson | Out-File -FilePath sp-credentials.json -Encoding utf8
 >
 > # Anote os IDs em local seguro (gerenciador de senhas / bloco de notas privado)
-> echo "$SP_JSON" | jq -r '"clientId: " + .clientId, "tenantId: " + .tenantId, "subscriptionId: " + .subscriptionId'
+> $SpJson | ConvertFrom-Json | ForEach-Object { "clientId: $($_.clientId)"; "tenantId: $($_.tenantId)"; "subscriptionId: $($_.subscriptionId)" }
 > ```
+>
+> > **Linux/Mac/WSL:** troque `$Var = cmd` por `VAR=$(cmd)`, `` ` `` por `\`, `Out-File` por `echo "$VAR" > file`.
 >
 > **`--json-auth`** retorna o JSON formato legacy compatível com `creds:` — mas vamos descartar a parte do `clientSecret` (Passo 3.3 cria federated credential que **substitui** o secret). Mantemos só os 3 IDs.
 
@@ -128,22 +130,24 @@ O SP precisa de permissão para criar/atualizar recursos dentro do RG (APIM, Con
 
 > **Alternativa via Azure CLI:**
 >
-> ```bash
-> # Usando o mesmo $SUBSCRIPTION_ID do Passo 3.1
-> SP_OBJECT_ID=$(az ad sp list --display-name "sp-github-actions-helpsphere" --query "[0].id" -o tsv)
+> ```powershell
+> # Usando o mesmo $SubscriptionId do Passo 3.1
+> $SpObjectId = az ad sp list --display-name "sp-github-actions-helpsphere" --query "[0].id" -o tsv
 >
-> az role assignment create \
->   --assignee "$SP_OBJECT_ID" \
->   --role "Contributor" \
->   --scope "/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/rg-lab-avancado"
+> az role assignment create `
+>   --assignee $SpObjectId `
+>   --role "Contributor" `
+>   --scope "/subscriptions/$SubscriptionId/resourceGroups/rg-lab-avancado"
 >
 > # Validar role assignment criada
-> az role assignment list \
->   --assignee "$SP_OBJECT_ID" \
->   --resource-group rg-lab-avancado \
+> az role assignment list `
+>   --assignee $SpObjectId `
+>   --resource-group rg-lab-avancado `
 >   --query "[].{role:roleDefinitionName, scope:scope}" -o table
 > # Esperado: role=Contributor, scope=/subscriptions/.../resourceGroups/rg-lab-avancado
 > ```
+>
+> > **Linux/Mac/WSL:** troque `$Var = cmd` por `VAR=$(cmd)`, `` ` `` por `\`, `$Var` por `"$VAR"`.
 
 > **Custo:** R$ 0 — role assignments são metadata gratuita.
 
@@ -178,21 +182,24 @@ Em vez de armazenar client secret no GitHub, usamos **OIDC federation trust** en
 
 > **Alternativa via Azure CLI:**
 >
-> ```bash
-> APP_ID=$(az ad app list --display-name "sp-github-actions-helpsphere" --query "[0].appId" -o tsv)
-> GITHUB_USER="<seu-username>"  # exatamente como aparece no perfil GitHub
+> ```powershell
+> $AppId = az ad app list --display-name "sp-github-actions-helpsphere" --query "[0].appId" -o tsv
+> $GithubUser = "<seu-username>"  # exatamente como aparece no perfil GitHub
 >
-> cat > fc-main.json <<EOF
+> $FcMain = @"
 > {
 >   "name": "github-helpsphere-main",
 >   "issuer": "https://token.actions.githubusercontent.com",
->   "subject": "repo:${GITHUB_USER}/helpsphere-ia:ref:refs/heads/main",
+>   "subject": "repo:$GithubUser/helpsphere-ia:ref:refs/heads/main",
 >   "description": "Deploy from main branch (CD Staging trigger)",
 >   "audiences": ["api://AzureADTokenExchange"]
 > }
-> EOF
-> az ad app federated-credential create --id "$APP_ID" --parameters fc-main.json
+> "@
+> $FcMain | Out-File -FilePath fc-main.json -Encoding utf8
+> az ad app federated-credential create --id $AppId --parameters fc-main.json
 > ```
+>
+> > **Linux/Mac/WSL:** troque `$Var = cmd` por `VAR=$(cmd)`, here-string `@"..."@` por here-doc `cat > file <<EOF ... EOF`, `$Var` por `"${VAR}"`.
 
 > **Custo:** R$ 0 — federated credentials são gratuitos (sem limite de quantidade até hoje).
 
@@ -221,18 +228,21 @@ O job `bicep-what-if` do Capítulo 05 roda **apenas em PRs** (`if: github.event_
 
 > **Alternativa via Azure CLI:**
 >
-> ```bash
-> cat > fc-pr.json <<EOF
+> ```powershell
+> $FcPr = @"
 > {
 >   "name": "github-helpsphere-pr",
 >   "issuer": "https://token.actions.githubusercontent.com",
->   "subject": "repo:${GITHUB_USER}/helpsphere-ia:pull_request",
+>   "subject": "repo:$GithubUser/helpsphere-ia:pull_request",
 >   "description": "Validate from PRs (CI bicep-what-if)",
 >   "audiences": ["api://AzureADTokenExchange"]
 > }
-> EOF
-> az ad app federated-credential create --id "$APP_ID" --parameters fc-pr.json
+> "@
+> $FcPr | Out-File -FilePath fc-pr.json -Encoding utf8
+> az ad app federated-credential create --id $AppId --parameters fc-pr.json
 > ```
+>
+> > **Linux/Mac/WSL:** troque here-string `@"..."@` por here-doc `cat > file <<EOF ... EOF`, `$Var` por `"${VAR}"`.
 
 > **Nota pedagógica — `pull_request` autoriza qualquer PR no repo:** diferente de `ref:refs/heads/main` (que exige branch específico), `pull_request` é abrangente — qualquer PR dispara. Em prod com forks, isso pode ser perigoso (fork malicioso abre PR + roda código com role Contributor no seu RG). Mitigação no Capítulo 05: o what-if é **read-only** (só `az deployment group what-if`, sem `create`) — então mesmo se um fork rodar, ele não muta nada. Pattern: credential `pull_request` SEMPRE com workflow read-only no PR.
 
@@ -260,23 +270,26 @@ O workflow `cd-prod.yml` (Capítulo 05) usa `environment: production` no job. O 
 
 > **Alternativa via Azure CLI:**
 >
-> ```bash
-> cat > fc-env-prod.json <<EOF
+> ```powershell
+> $FcEnvProd = @"
 > {
 >   "name": "github-helpsphere-env-production",
 >   "issuer": "https://token.actions.githubusercontent.com",
->   "subject": "repo:${GITHUB_USER}/helpsphere-ia:environment:production",
+>   "subject": "repo:$GithubUser/helpsphere-ia:environment:production",
 >   "description": "Deploy to production environment (manual approval required)",
 >   "audiences": ["api://AzureADTokenExchange"]
 > }
-> EOF
-> az ad app federated-credential create --id "$APP_ID" --parameters fc-env-prod.json
+> "@
+> $FcEnvProd | Out-File -FilePath fc-env-prod.json -Encoding utf8
+> az ad app federated-credential create --id $AppId --parameters fc-env-prod.json
 >
 > # Validar as 3 credentials criadas
-> az ad app federated-credential list --id "$APP_ID" \
+> az ad app federated-credential list --id $AppId `
 >   --query "[].{name:name, subject:subject}" -o table
 > # Esperado: 3 linhas com subjects diferentes (refs/heads/main, pull_request, environment:production)
 > ```
+>
+> > **Linux/Mac/WSL:** troque here-string `@"..."@` por here-doc, `` ` `` por `\`, `$Var` por `"${VAR}"`.
 
 > **Nota pedagógica — por que credential `environment` separada de `branch`?** Mesmo que o `cd-prod.yml` rode em `main`, GitHub envia JWT com `subject = environment:production` (não `ref:refs/heads/main`) quando o job tem `environment: <name>`. **Os dois subjects são mutuamente exclusivos por workflow run.** Se você criasse só credential `main`, o CD Staging funcionaria (não usa environment) mas CD Prod falharia. Se você criasse só `environment:production`, CD Prod funcionaria mas CI/CD Staging falhariam. Os 3 cobrem os 3 cenários do Capítulo 05.
 
@@ -299,20 +312,22 @@ Os 3 IDs (Tenant, Subscription, Client) + a key AOAI precisam virar **secrets** 
 
 > **Alternativa via gh CLI (mais rápido):**
 >
-> ```bash
-> TENANT_ID=$(az account show --query tenantId -o tsv)
-> SUBSCRIPTION_ID=$(az account show --query id -o tsv)
-> CLIENT_ID=$(az ad sp list --display-name "sp-github-actions-helpsphere" --query "[0].appId" -o tsv)
+> ```powershell
+> $TenantId = az account show --query tenantId -o tsv
+> $SubscriptionId = az account show --query id -o tsv
+> $ClientId = az ad sp list --display-name "sp-github-actions-helpsphere" --query "[0].appId" -o tsv
 >
-> gh secret set AZURE_TENANT_ID --body "$TENANT_ID" --repo "<seu-username>/helpsphere-ia"
-> gh secret set AZURE_SUBSCRIPTION_ID --body "$SUBSCRIPTION_ID" --repo "<seu-username>/helpsphere-ia"
-> gh secret set AZURE_CLIENT_ID --body "$CLIENT_ID" --repo "<seu-username>/helpsphere-ia"
+> gh secret set AZURE_TENANT_ID --body $TenantId --repo "<seu-username>/helpsphere-ia"
+> gh secret set AZURE_SUBSCRIPTION_ID --body $SubscriptionId --repo "<seu-username>/helpsphere-ia"
+> gh secret set AZURE_CLIENT_ID --body $ClientId --repo "<seu-username>/helpsphere-ia"
 > gh secret set AOAI_API_KEY --body "<sua-key-aoai-do-Lab-Inter>" --repo "<seu-username>/helpsphere-ia"
 >
 > # Validar (não mostra valores — apenas nomes)
 > gh secret list --repo "<seu-username>/helpsphere-ia"
 > # Esperado: 4 linhas (AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID, AZURE_CLIENT_ID, AOAI_API_KEY)
 > ```
+>
+> > **Linux/Mac/WSL:** troque `$Var = cmd` por `VAR=$(cmd)`, `$Var` por `"$VAR"`.
 
 > **Custo:** R$ 0 — secrets ilimitados em qualquer tier GitHub.
 
@@ -340,24 +355,26 @@ Os 3 IDs (Tenant, Subscription, Client) + a key AOAI precisam virar **secrets** 
 
 **No terminal local — smoke single-command:**
 
-```bash
-echo "=== Capítulo 03 — Smoke validation ===" && \
-echo "1. App Registration existe:" && \
-az ad app list --display-name "sp-github-actions-helpsphere" --query "[0].{name:displayName, appId:appId}" -o table && \
-echo "" && \
-echo "2. Service Principal com Contributor no RG:" && \
-SP_OBJ=$(az ad sp list --display-name "sp-github-actions-helpsphere" --query "[0].id" -o tsv) && \
-az role assignment list --assignee "$SP_OBJ" --resource-group rg-lab-avancado --query "[].roleDefinitionName" -o tsv && \
-echo "" && \
-echo "3. 3 Federated credentials cravadas:" && \
-APP_ID=$(az ad app list --display-name "sp-github-actions-helpsphere" --query "[0].appId" -o tsv) && \
-az ad app federated-credential list --id "$APP_ID" --query "[].{name:name, subject:subject}" -o table && \
-echo "" && \
-echo "4. 4 GitHub secrets registrados:" && \
-gh secret list --repo "<seu-username>/helpsphere-ia" && \
-echo "" && \
-echo "=== FIM smoke ==="
+```powershell
+Write-Host "=== Capítulo 03 — Smoke validation ==="
+Write-Host "1. App Registration existe:"
+az ad app list --display-name "sp-github-actions-helpsphere" --query "[0].{name:displayName, appId:appId}" -o table
+Write-Host ""
+Write-Host "2. Service Principal com Contributor no RG:"
+$SpObj = az ad sp list --display-name "sp-github-actions-helpsphere" --query "[0].id" -o tsv
+az role assignment list --assignee $SpObj --resource-group rg-lab-avancado --query "[].roleDefinitionName" -o tsv
+Write-Host ""
+Write-Host "3. 3 Federated credentials cravadas:"
+$AppId = az ad app list --display-name "sp-github-actions-helpsphere" --query "[0].appId" -o tsv
+az ad app federated-credential list --id $AppId --query "[].{name:name, subject:subject}" -o table
+Write-Host ""
+Write-Host "4. 4 GitHub secrets registrados:"
+gh secret list --repo "<seu-username>/helpsphere-ia"
+Write-Host ""
+Write-Host "=== FIM smoke ==="
 ```
+
+> **Linux/Mac/WSL:** troque `Write-Host` por `echo`, `$Var = cmd` por `VAR=$(cmd)`, `$Var` por `"$VAR"`, e encadeie linhas com `&& \` em vez de quebra de linha simples.
 
 **Esperado:**
 
@@ -388,30 +405,36 @@ AOAI_API_KEY            Updated 2026-...
 
 ## Validação end-to-end
 
-```bash
+```powershell
 # 1. App Registration + SP existem
 az ad sp list --display-name "sp-github-actions-helpsphere" --query "[0].{name:displayName, appId:appId, objectId:id}" -o jsonc
 
 # 2. Role Contributor no RG (e SOMENTE no RG — não na sub)
-az role assignment list \
-  --assignee "$(az ad sp list --display-name 'sp-github-actions-helpsphere' --query '[0].id' -o tsv)" \
+$SpObj = az ad sp list --display-name "sp-github-actions-helpsphere" --query "[0].id" -o tsv
+az role assignment list `
+  --assignee $SpObj `
   --query "[].{role:roleDefinitionName, scope:scope}" -o table
 # Esperado: 1 linha com role=Contributor + scope terminando em /resourceGroups/rg-lab-avancado
 
 # 3. 3 federated credentials presentes
-az ad app federated-credential list \
-  --id "$(az ad app list --display-name 'sp-github-actions-helpsphere' --query '[0].appId' -o tsv)" \
+$AppId = az ad app list --display-name "sp-github-actions-helpsphere" --query "[0].appId" -o tsv
+az ad app federated-credential list `
+  --id $AppId `
   --query "length(@)"
 # Esperado: 3
 
 # 4. GitHub secrets presentes (nomes apenas)
-gh secret list --repo "<seu-username>/helpsphere-ia" | wc -l
+(gh secret list --repo "<seu-username>/helpsphere-ia" | Measure-Object -Line).Lines
 # Esperado: 4
 
 # 5. Cleanup do sp-credentials.json local (se criou no Passo 3.1 via CLI)
-ls sp-credentials.json 2>/dev/null && echo "ATENÇÃO: delete sp-credentials.json antes de commitar (já está no .gitignore mas não vale o risco)"
-rm -f sp-credentials.json
+if (Test-Path sp-credentials.json) {
+  Write-Host "ATENÇÃO: delete sp-credentials.json antes de commitar (já está no .gitignore mas não vale o risco)"
+  Remove-Item -Force sp-credentials.json
+}
 ```
+
+> **Linux/Mac/WSL:** troque `$Var = cmd` por `VAR=$(cmd)`, `` ` `` por `\`, `Measure-Object -Line` por `wc -l`, e o `if (Test-Path ...)` por `ls ... 2>/dev/null && rm -f ...`.
 
 ---
 

@@ -340,39 +340,41 @@ Antes de subir o pipeline, rode o eval local contra **staging** para validar que
 
 **No terminal local (raiz do repo):**
 
-```bash
+```powershell
 # 1. Capturar APIM key
-export APIM_SUBSCRIPTION_KEY=$(az apim subscription show \
-  --resource-group rg-lab-avancado \
-  --service-name apim-helpsphere-staging \
-  --sid master \
-  --query primaryKey -o tsv)
+$env:APIM_SUBSCRIPTION_KEY = az apim subscription show `
+  --resource-group rg-lab-avancado `
+  --service-name apim-helpsphere-staging `
+  --sid master `
+  --query primaryKey -o tsv
 
 # 2. Capturar APIM gateway URL
-export APIM_GATEWAY_URL=$(az apim show \
-  -n apim-helpsphere-staging -g rg-lab-avancado \
-  --query gatewayUrl -o tsv)
+$env:APIM_GATEWAY_URL = az apim show `
+  -n apim-helpsphere-staging -g rg-lab-avancado `
+  --query gatewayUrl -o tsv
 
 # 3. Instalar deps
 pip install -r eval/requirements.txt
 
 # 4. Rodar eval (modo STUB)
-python eval/run_eval.py \
-  --endpoint "$APIM_GATEWAY_URL/agent/chat" \
-  --subscription-key "$APIM_SUBSCRIPTION_KEY" \
-  --dataset eval/dataset.jsonl \
+python eval/run_eval.py `
+  --endpoint "$env:APIM_GATEWAY_URL/agent/chat" `
+  --subscription-key $env:APIM_SUBSCRIPTION_KEY `
+  --dataset eval/dataset.jsonl `
   --output eval/report.json
 ```
+
+> **Linux/Mac/WSL:** troque `$env:VAR =` por `export VAR=$(...)`, `` ` `` por `\`, e referências `$env:VAR` por `"$VAR"`.
 
 **Output esperado** (com stubs): banner `⚠️ STUB MODE`, depois 10 linhas `✅ Cnn: latency=Xms`, summary com `groundedness_avg=0.5 / relevance_avg=0.5 / safety_block_rate_harmful=1.0 / refuse_rate_oos=1.0`, e **2 violations esperadas**: `::error::Threshold violation: groundedness 0.5 < 0.8` + `relevance 0.5 < 0.7`.
 
 **Sim, esperado** — em modo stub, groundedness e relevance violam threshold porque retornam `0.5` fixo. Para o **smoke run local** ser útil sem falhar, baixe os thresholds temporariamente:
 
-```bash
-python eval/run_eval.py \
-  --endpoint "$APIM_GATEWAY_URL/agent/chat" \
-  --subscription-key "$APIM_SUBSCRIPTION_KEY" \
-  --threshold-groundedness 0.4 \
+```powershell
+python eval/run_eval.py `
+  --endpoint "$env:APIM_GATEWAY_URL/agent/chat" `
+  --subscription-key $env:APIM_SUBSCRIPTION_KEY `
+  --threshold-groundedness 0.4 `
   --threshold-relevance 0.4
 ```
 
@@ -418,23 +420,25 @@ requests
 
 ## Validação end-to-end
 
-```bash
+```powershell
 # 1. Arquivos do eval pipeline (4 esperados)
-ls eval/  # dataset.jsonl  requirements.txt  run_eval.py  baseline_results.json
+Get-ChildItem eval/  # dataset.jsonl  requirements.txt  run_eval.py  baseline_results.json
 
 # 2. Smoke local com override
 python eval/run_eval.py --threshold-groundedness 0.4 --threshold-relevance 0.4
-echo "Exit: $?"  # 0 = passou
+Write-Host "Exit: $LASTEXITCODE"  # 0 = passou
 
 # 3. Report sanity check
 jq '.summary' eval/report.json  # total=10, safety_block_rate_harmful=1.0
 
 # 4. Pipeline + artifact
-git add eval/ docs/RUNBOOK.md && git commit -m "feat: eval v0.1.0 + RUNBOOK" && git push origin main
+git add eval/ docs/RUNBOOK.md; git commit -m "feat: eval v0.1.0 + RUNBOOK"; git push origin main
 gh run list --workflow cd-staging.yml --limit 1
 gh run download --name eval-results-staging
 jq '.summary.safety_block_rate_harmful' results.json  # 1.0
 ```
+
+> **Linux/Mac/WSL:** troque `Get-ChildItem` por `ls`, `Write-Host` por `echo`, `$LASTEXITCODE` por `$?`, e `;` por `&&`.
 
 ---
 

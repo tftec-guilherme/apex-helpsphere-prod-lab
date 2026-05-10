@@ -65,18 +65,20 @@ O módulo `infra/modules/policy.bicep` é incluído no `main.bicep` e foi deploy
 
 > **Alternativa via Azure CLI:**
 >
-> ```bash
+> ```powershell
 > # Listar assignments no escopo do RG
-> az policy assignment list \
->   --scope /subscriptions/<sub-id>/resourceGroups/rg-lab-avancado \
->   --query "[].{name:displayName, definitionId:policyDefinitionId, state:enforcementMode}" \
+> az policy assignment list `
+>   --scope /subscriptions/<sub-id>/resourceGroups/rg-lab-avancado `
+>   --query "[].{name:displayName, definitionId:policyDefinitionId, state:enforcementMode}" `
 >   -o table
 >
 > # Ver compliance state agregada
-> az policy state summarize \
->   --resource-group rg-lab-avancado \
+> az policy state summarize `
+>   --resource-group rg-lab-avancado `
 >   --query "results" -o json
 > ```
+>
+> **Linux/Mac/WSL:** troque `` ` `` por `\`.
 
 > **Custo:** R$ 0 — Azure Policy não cobra por assignment, por evaluation, nem por compliance check. **Cobra R$ 0 mesmo deletando e recriando** (ao contrário de APIM que cobra parado).
 
@@ -107,19 +109,21 @@ A maneira mais didática de validar uma policy `deny` é tentando criar um recur
 
 > **Alternativa via Azure CLI (deve falhar):**
 >
-> ```bash
+> ```powershell
 > # Deve retornar erro de policy denial
-> az storage account create \
->   --name sttestpolicy<seu-username> \
->   --resource-group rg-lab-avancado \
->   --location brazilsouth \
->   --sku Standard_LRS \
+> az storage account create `
+>   --name sttestpolicy<seu-username> `
+>   --resource-group rg-lab-avancado `
+>   --location brazilsouth `
+>   --sku Standard_LRS `
 >   --kind StorageV2
 > # Saída esperada:
 > # ERROR: (RequestDisallowedByPolicy) Resource 'sttestpolicy...' was disallowed by policy.
 > # Reasons: 'Allowed locations'
 > # Policy identifiers: '[{"policyAssignment":{"name":"allowed-locations-..."}}]'
 > ```
+>
+> **Linux/Mac/WSL:** troque `` ` `` por `\`.
 
 5. Re-tente trocando **Region: East US 2** → deploy é aceito → delete o Storage logo após validar (custo desprezível, mas evite deixar lixo)
 
@@ -157,25 +161,27 @@ A policy 2 (`Require cost-center tag`) força que **todos os novos recursos** te
 
 > **Alternativa via Azure CLI (deve falhar sem tag):**
 >
-> ```bash
+> ```powershell
 > # Sem tag — deve falhar
-> az appservice plan create \
->   --name plan-test-no-tag \
->   --resource-group rg-lab-avancado \
->   --location eastus2 \
+> az appservice plan create `
+>   --name plan-test-no-tag `
+>   --resource-group rg-lab-avancado `
+>   --location eastus2 `
 >   --sku FREE
 > # Saída: ERROR: (RequestDisallowedByPolicy) ... Require cost-center tag
 >
 > # Com tag — deve aceitar
-> az appservice plan create \
->   --name plan-test-with-tag \
->   --resource-group rg-lab-avancado \
->   --location eastus2 \
->   --sku FREE \
+> az appservice plan create `
+>   --name plan-test-with-tag `
+>   --resource-group rg-lab-avancado `
+>   --location eastus2 `
+>   --sku FREE `
 >   --tags cost-center=apex-helpsphere-ia
 > # Cleanup
 > az appservice plan delete --name plan-test-with-tag -g rg-lab-avancado --yes
 > ```
+>
+> **Linux/Mac/WSL:** troque `` ` `` por `\`.
 
 > **Custo:** R$ 0 — Free F1 plan sempre é gratuito, mesmo quando não bloqueado. O valor é pedagógico, não financeiro.
 
@@ -212,23 +218,25 @@ Budget alerts disparam **antes** do gasto real explodir. Configuramos 3 threshol
 
 > **Alternativa via Azure CLI:**
 >
-> ```bash
+> ```powershell
 > # Capturar mês atual no formato yyyy-MM-01
-> START=$(date -u +%Y-%m-01)
+> $Start = (Get-Date -Format "yyyy-MM-01")
 >
-> az consumption budget create \
->   --resource-group rg-lab-avancado \
->   --budget-name budget-helpsphere-ia \
->   --amount 200 \
->   --time-grain Monthly \
->   --time-period start-date=$START \
->   --notifications \
->     operator=GreaterThan threshold=50 contact-emails="ops@apex.com.br" \
->   --notifications \
->     operator=GreaterThan threshold=80 contact-emails="ops@apex.com.br" "cto@apex.com.br" \
->   --notifications \
+> az consumption budget create `
+>   --resource-group rg-lab-avancado `
+>   --budget-name budget-helpsphere-ia `
+>   --amount 200 `
+>   --time-grain Monthly `
+>   --time-period start-date=$Start `
+>   --notifications `
+>     operator=GreaterThan threshold=50 contact-emails="ops@apex.com.br" `
+>   --notifications `
+>     operator=GreaterThan threshold=80 contact-emails="ops@apex.com.br" "cto@apex.com.br" `
+>   --notifications `
 >     operator=GreaterThan threshold=100 contact-emails="ops@apex.com.br" "cfo@apex.com.br"
 > ```
+>
+> **Linux/Mac/WSL:** troque `$Start = (Get-Date -Format "yyyy-MM-01")` por `START=$(date -u +%Y-%m-01)` e `` ` `` por `\`.
 
 > **Custo:** R$ 0 — Budget alerts não cobram. Cobra-se apenas se o budget atingir threshold, mas **a notificação em si** (email) é gratuita.
 
@@ -266,14 +274,16 @@ Action Group é o **fan-out hub** dos alerts. Mesma config de notification reuti
 
 > **Alternativa via Azure CLI:**
 >
-> ```bash
-> az monitor action-group create \
->   --name ag-helpsphere-ia-alerts \
->   --resource-group rg-lab-avancado \
->   --short-name HSphereIA \
->   --action email ops "ops@apex.com.br" \
+> ```powershell
+> az monitor action-group create `
+>   --name ag-helpsphere-ia-alerts `
+>   --resource-group rg-lab-avancado `
+>   --short-name HSphereIA `
+>   --action email ops "ops@apex.com.br" `
 >   --action email cfo "cfo@apex.com.br"
 > ```
+>
+> **Linux/Mac/WSL:** troque `` ` `` por `\`.
 
 > **Custo:** R$ 0 — Action Group por si não cobra. **Email** é gratuito ilimitado. **SMS** cobra ~R$ 0,30/msg (BR), **voice call** ~R$ 0,75/call, **push** gratuito (precisa app Azure Mobile). Para o lab, só email.
 
@@ -337,14 +347,18 @@ Cost Analysis é o **diagnóstico**: depois que budget alerta, você precisa sab
 
 > **Alternativa via Azure CLI (consultas brutas, sem visualização):**
 >
-> ```bash
+> ```powershell
 > # Custo por serviço últimos 30 dias
-> az consumption usage list \
->   --start-date $(date -u -d '30 days ago' +%Y-%m-%d) \
->   --end-date $(date -u +%Y-%m-%d) \
->   --query "[?contains(instanceId, 'rg-lab-avancado')].{service:meterDetails.serviceName, cost:pretaxCost}" \
+> $StartDate = (Get-Date).AddDays(-30).ToString("yyyy-MM-dd")
+> $EndDate = (Get-Date).ToString("yyyy-MM-dd")
+> az consumption usage list `
+>   --start-date $StartDate `
+>   --end-date $EndDate `
+>   --query "[?contains(instanceId, 'rg-lab-avancado')].{service:meterDetails.serviceName, cost:pretaxCost}" `
 >   -o table
 > ```
+>
+> **Linux/Mac/WSL:** troque `$StartDate = ...` por `START=$(date -u -d '30 days ago' +%Y-%m-%d)` e `` ` `` por `\`.
 >
 > Atenção: `consumption usage list` retorna **dados crus** sem agregação — usa-se Cost Analysis Portal para visualização agregada.
 
@@ -371,44 +385,51 @@ Cost Analysis é o **diagnóstico**: depois que budget alerta, você precisa sab
 
 ## Validação end-to-end
 
-```bash
+```powershell
 # 1. Verificar que os 3 policy assignments existem no RG
-az policy assignment list \
-  --scope /subscriptions/$(az account show --query id -o tsv)/resourceGroups/rg-lab-avancado \
-  --query "[].{name:displayName, mode:enforcementMode}" \
+$SubId = az account show --query id -o tsv
+az policy assignment list `
+  --scope "/subscriptions/$SubId/resourceGroups/rg-lab-avancado" `
+  --query "[].{name:displayName, mode:enforcementMode}" `
   -o table
 # Esperado: 3 linhas, todas com mode=Default
 
 # 2. Verificar compliance state agregada
-az policy state summarize \
-  --resource-group rg-lab-avancado \
-  --query "results[].{name:policyAssignment, compliant:results.resourceDetails[?complianceState=='Compliant'] | length(@)}" \
+az policy state summarize `
+  --resource-group rg-lab-avancado `
+  --query "results[].{name:policyAssignment, compliant:results.resourceDetails[?complianceState=='Compliant'] | length(@)}" `
   -o table
 
 # 3. Verificar budget criado
-az consumption budget list \
-  --resource-group rg-lab-avancado \
-  --query "[].{name:name, amount:amount, period:timeGrain}" \
+az consumption budget list `
+  --resource-group rg-lab-avancado `
+  --query "[].{name:name, amount:amount, period:timeGrain}" `
   -o table
 # Esperado: budget-helpsphere-ia | 200 | Monthly
 
 # 4. Verificar action group + emails
-az monitor action-group show \
-  --name ag-helpsphere-ia-alerts \
-  --resource-group rg-lab-avancado \
-  --query "{name:name, emails:emailReceivers[].emailAddress}" \
+az monitor action-group show `
+  --name ag-helpsphere-ia-alerts `
+  --resource-group rg-lab-avancado `
+  --query "{name:name, emails:emailReceivers[].emailAddress}" `
   -o json
 # Esperado: name=ag-helpsphere-ia-alerts, emails=["ops@apex.com.br","cfo@apex.com.br"]
 
 # 5. Negative test policy: deve falhar
-az storage account create \
-  --name sttestpolicy$(date +%s) \
-  --resource-group rg-lab-avancado \
-  --location brazilsouth \
-  --sku Standard_LRS 2>&1 | grep -q "RequestDisallowedByPolicy" \
-  && echo "OK — policy bloqueou Brazil South" \
-  || echo "FAIL — policy não bloqueou (verificar enforcementMode)"
+$Timestamp = [int][double]::Parse((Get-Date -UFormat %s))
+$Output = az storage account create `
+  --name "sttestpolicy$Timestamp" `
+  --resource-group rg-lab-avancado `
+  --location brazilsouth `
+  --sku Standard_LRS 2>&1 | Out-String
+if ($Output -match "RequestDisallowedByPolicy") {
+    Write-Host "OK — policy bloqueou Brazil South"
+} else {
+    Write-Host "FAIL — policy nao bloqueou (verificar enforcementMode)"
+}
 ```
+
+> **Linux/Mac/WSL:** troque `$Var = cmd` por `VAR=$(cmd)`, `` ` `` por `\`, `Get-Date -UFormat %s` por `date +%s`, e o `if ($Output -match ...)` por `... 2>&1 | grep -q "RequestDisallowedByPolicy" && echo OK || echo FAIL`.
 
 ---
 

@@ -8,6 +8,14 @@
 
 ---
 
+## ⚙️ Sintaxe de comandos shell
+
+> **Os blocos shell deste guia usam PowerShell** (Windows-first, alinhado ao público da disciplina). Continuação de linha é `` ` `` (backtick), variáveis de ambiente via `$env:VAR = "..."`, substituição de comando via `(cmd)` ou `$(cmd)`.
+>
+> **Linux / Mac / WSL:** troque `$env:VAR = "..."` por `export VAR="..."`, `$env:VAR = (cmd)` por `export VAR=$(cmd)`, e `` ` `` por `\` no fim das linhas.
+
+---
+
 ## DISCLAIMER R6 (recap obrigatório) — checagem ABAC antes de tudo
 
 Este lab é o **único dos 3 Labs D06 que sobe CI/CD via Service Principal federado**. Isso significa que sua subscription **não pode ter ABAC condition ativa** — caso contrário o workflow `ci.yml` falha no primeiro `az role assignment create` e o demo CI/CD perde o valor pedagógico.
@@ -65,7 +73,7 @@ Você ainda consegue rodar `az deployment group create` localmente com sua user 
 <!-- screenshot: cap01-passo1.1-subscription-overview-state-enabled.png -->
 
 > **Alternativa via Azure CLI:**
-> ```bash
+> ```powershell
 > # Login (abre browser; aceita device code com --use-device-code)
 > az login
 >
@@ -79,6 +87,8 @@ Você ainda consegue rodar `az deployment group create` localmente com sua user 
 > az account show --query "{name:name, id:id, state:state, tenantId:tenantId}" -o json
 > # Esperado: state=Enabled
 > ```
+>
+> **Linux/Mac/WSL:** comandos `az` são idênticos — só a sintaxe shell de variáveis muda (não usadas neste bloco).
 
 > **Custo:** R$ 0 — validação read-only.
 
@@ -88,9 +98,9 @@ Você ainda consegue rodar `az deployment group create` localmente com sua user 
 
 ## Passo 1.2 — Instalar / atualizar tooling local
 
-**No terminal local (Windows PowerShell / WSL / macOS terminal):**
+**No terminal local (Windows PowerShell 7):**
 
-```bash
+```powershell
 # 1. Azure CLI >= 2.60 (validamos em 2.65 na gravação)
 az --version
 # Se < 2.60: https://learn.microsoft.com/cli/azure/install-azure-cli
@@ -118,9 +128,11 @@ gh auth status
 git --version
 ```
 
+> **Linux/Mac/WSL:** comandos são idênticos — só a sintaxe shell de variáveis muda (não usadas neste bloco).
+
 > **Alternativa via VS Code (recomendado):** instale as 3 extensões abaixo no VS Code — vamos usá-las no Capítulo 04 (Bicep) e 05 (Actions).
 >
-> ```bash
+> ```powershell
 > code --install-extension ms-azuretools.vscode-bicep
 > code --install-extension github.vscode-github-actions
 > code --install-extension ms-python.python
@@ -153,15 +165,17 @@ Este lab é IaC end-to-end — o código Bicep + workflows YAML + Python eval vi
 <!-- screenshot: cap01-passo1.3-github-new-repo-helpsphere-ia.png -->
 
 > **Alternativa via gh CLI:**
-> ```bash
-> gh repo create helpsphere-ia \
->   --private \
->   --description "Lab Avançado D06 — IA Production-grade (Apex HelpSphere)" \
+> ```powershell
+> gh repo create helpsphere-ia `
+>   --private `
+>   --description "Lab Avançado D06 — IA Production-grade (Apex HelpSphere)" `
 >   --confirm
 >
 > # Confirmar criação
 > gh repo view <seu-username>/helpsphere-ia --json url,visibility,isPrivate
 > ```
+>
+> **Linux/Mac/WSL:** troque `` ` `` por `\` no fim das linhas.
 
 > **Custo:** R$ 0 — repo privado é free para 1 colaborador. GitHub Actions tem 2.000 min/mês free em repos privados (este lab consome ~50 min total).
 
@@ -189,22 +203,23 @@ Esta é a validação **mais importante** do Capítulo. Custo R$ 0. Tempo 5-10 m
 
 > **Alternativa via Azure CLI (validação direta com SP de teste · destrutiva-leve):**
 >
-> ```bash
+> ```powershell
 > # 1. Crie SP de teste (descartável — vamos deletar no fim)
-> SP=$(az ad sp create-for-rbac \
->   --name "sp-test-abac-$(date +%s)" \
->   --role contributor \
->   --scopes "/subscriptions/<SUB_ID>" \
->   --query '{id:id, appId:appId}' -o json)
-> echo "$SP"
+> $Timestamp = [int][double]::Parse((Get-Date -UFormat %s))
+> $Sp = az ad sp create-for-rbac `
+>   --name "sp-test-abac-$Timestamp" `
+>   --role contributor `
+>   --scopes "/subscriptions/<SUB_ID>" `
+>   --query "{id:id, appId:appId}" -o json | ConvertFrom-Json
+> Write-Host $Sp
 >
-> SP_OBJECT_ID=$(echo "$SP" | jq -r .id)
-> SP_APP_ID=$(echo "$SP" | jq -r .appId)
+> $SpObjectId = $Sp.id
+> $SpAppId = $Sp.appId
 >
 > # 2. Tente role assignment via esse SP (em RG fictício, mesmo se não existir é OK pra teste de auth)
-> az role assignment create \
->   --assignee "$SP_OBJECT_ID" \
->   --role "Storage Blob Data Reader" \
+> az role assignment create `
+>   --assignee $SpObjectId `
+>   --role "Storage Blob Data Reader" `
 >   --scope "/subscriptions/<SUB_ID>"
 >
 > # SE retornar:
@@ -215,8 +230,10 @@ Esta é a validação **mais importante** do Capítulo. Custo R$ 0. Tempo 5-10 m
 > # SE retornar sucesso ou erro genérico (RG não existe), ABAC OK → siga
 >
 > # 3. Cleanup do SP de teste
-> az ad sp delete --id "$SP_APP_ID"
+> az ad sp delete --id $SpAppId
 > ```
+>
+> **Linux/Mac/WSL:** troque `$Var = ...` por `VAR=...`, `$Var` por `"$VAR"`, `` ` `` por `\` no fim das linhas, e use `$(date +%s)` + `jq -r .id` no lugar das equivalências PowerShell.
 
 > **Custo:** R$ 0 — SPs e role assignments são gratuitos · cleanup do SP é obrigatório (cravado no comando acima).
 
@@ -244,14 +261,16 @@ O lab Avançado **opcionalmente** integra com o Foundry Hub `aifhub-apex-prod` p
 <!-- screenshot: cap01-passo1.5-foundry-hub-aifhub-apex-prod.png -->
 
 > **Alternativa via Azure CLI:**
-> ```bash
-> az ml workspace show \
->   --name aifhub-apex-prod \
->   --resource-group <RG_DO_HUB> \
+> ```powershell
+> az ml workspace show `
+>   --name aifhub-apex-prod `
+>   --resource-group <RG_DO_HUB> `
 >   --query "{name:name, kind:kind, provisioningState:provisioningState}" -o table
 >
 > # Se retorna "ResourceNotFound" → Hub não existe nesta sub → plano B
 > ```
+>
+> **Linux/Mac/WSL:** troque `` ` `` por `\` no fim das linhas.
 
 > **Custo:** Hub vazio R$ 0/mês · Hub com deployments PAYG (gpt-4.1-mini + text-embedding-3-small) cobra por token consumido (~R$ 5-10 no lab inteiro de eval).
 
@@ -263,27 +282,29 @@ O lab Avançado **opcionalmente** integra com o Foundry Hub `aifhub-apex-prod` p
 
 ## Passo 1.6 — Validar tudo via smoke command único
 
-Antes de fechar o Capítulo, rode um único comando que valida os 5 itens em série:
+Antes de fechar o Capítulo, rode o bloco abaixo que valida os 5 itens em série:
 
-```bash
-echo "=== Capítulo 01 — Smoke validation ===" && \
-echo "1. az account show:" && \
-az account show --query "{name:name, state:state, tenantId:tenantId, id:id}" -o table && \
-echo "" && \
-echo "2. Bicep version:" && \
-az bicep version && \
-echo "" && \
-echo "3. Python version:" && \
-python --version && \
-echo "" && \
-echo "4. gh auth status:" && \
-gh auth status && \
-echo "" && \
-echo "5. Repo helpsphere-ia visível:" && \
-gh repo view <seu-username>/helpsphere-ia --json name,visibility,isPrivate,url 2>&1 || echo "(crie no Passo 1.3)" && \
-echo "" && \
-echo "=== FIM smoke ==="
+```powershell
+Write-Host "=== Capítulo 01 — Smoke validation ==="
+Write-Host "1. az account show:"
+az account show --query "{name:name, state:state, tenantId:tenantId, id:id}" -o table
+Write-Host ""
+Write-Host "2. Bicep version:"
+az bicep version
+Write-Host ""
+Write-Host "3. Python version:"
+python --version
+Write-Host ""
+Write-Host "4. gh auth status:"
+gh auth status
+Write-Host ""
+Write-Host "5. Repo helpsphere-ia visível:"
+try { gh repo view <seu-username>/helpsphere-ia --json name,visibility,isPrivate,url } catch { Write-Host "(crie no Passo 1.3)" }
+Write-Host ""
+Write-Host "=== FIM smoke ==="
 ```
+
+> **Linux/Mac/WSL:** versão bash equivalente com `echo ... && \` em série e `|| echo "(crie...)"` no fallback.
 
 **Esperado (saída completa, abreviada):**
 
@@ -303,7 +324,7 @@ PAYG do Guilherme     Enabled  72f988bf-86f1-41af-91ab-2d7cd011db47  3075a5eb-..
 
 ## Validação end-to-end
 
-```bash
+```powershell
 # 1. Subscription state Enabled
 az account show --query state -o tsv
 # Esperado: Enabled
@@ -311,10 +332,10 @@ az account show --query state -o tsv
 # 2. ABAC test (com SP descartável criado no Passo 1.4) passou (não retornou ConditionRequiresAuthorization)
 
 # 3. Toolchain version mínima
-az version --query '"azure-cli"' -o tsv      # >= 2.60
-az bicep version | grep -oE '[0-9]+\.[0-9]+'  # >= 0.30
-python --version | grep -oE '3\.[0-9]+'       # >= 3.11
-gh --version | head -1                        # >= 2.40
+az version --query '"azure-cli"' -o tsv                                       # >= 2.60
+az bicep version | Select-String -Pattern '[0-9]+\.[0-9]+'                    # >= 0.30
+python --version | Select-String -Pattern '3\.[0-9]+'                         # >= 3.11
+gh --version | Select-Object -First 1                                         # >= 2.40
 
 # 4. Repo privado existe
 gh repo view <seu-username>/helpsphere-ia --json isPrivate -q .isPrivate
@@ -324,6 +345,8 @@ gh repo view <seu-username>/helpsphere-ia --json isPrivate -q .isPrivate
 az ml workspace list --query "[?name=='aifhub-apex-prod'].name" -o tsv
 # Esperado: aifhub-apex-prod (se modo Hub) OU vazio (se modo stub)
 ```
+
+> **Linux/Mac/WSL:** troque `Select-String -Pattern X` por `grep -oE X` e `Select-Object -First 1` por `head -1`.
 
 ---
 
@@ -351,7 +374,7 @@ az ml workspace list --query "[?name=='aifhub-apex-prod'].name" -o tsv
 - ⚠️ **`gh auth status` mostra "Logged in" mas `gh repo create` retorna `HTTP 403`** — causa: scopes ausentes (token criado antes de `repo` ser scope necessário) · workaround: `gh auth refresh -s repo,workflow,delete_repo`. **Atenção:** scope `delete_repo` é necessário para o Capítulo 10 cleanup.
 - ⚠️ **Repo `helpsphere-ia` criado com README** — você marcou `Add README` no Passo 1.3 e agora `git push` do Capítulo 02 falha com `non-fast-forward` · workaround: (a) deletar e recriar, OU (b) `git pull --rebase origin main` antes do primeiro push, OU (c) `git push --force` (perigoso, só em repo recém-criado).
 - ⚠️ **Visual Studio Enterprise sub mostra "Enabled" mas ABAC bloqueia silenciosamente** — Portal não exibe condition ABAC default em VSE pessoais · só descobre via Passo 1.4 SP de teste · **stop-loss:** sempre rode o teste, nunca confie só no Portal.
-- ⚠️ **Tenant ID confuso em conta multi-tenant (Microsoft 365 + dev tenant)** — `az account show --query tenantId` mostra o tenant da sub atual, mas seu login GitHub pode estar vinculado a outro tenant Entra · valide com `az account list --query "[].tenantId" -o tsv | sort -u` (deve listar 1 só) antes de cravar federated credential no Capítulo 03.
+- ⚠️ **Tenant ID confuso em conta multi-tenant (Microsoft 365 + dev tenant)** — `az account show --query tenantId` mostra o tenant da sub atual, mas seu login GitHub pode estar vinculado a outro tenant Entra · valide com `az account list --query "[].tenantId" -o tsv | Sort-Object -Unique` (PowerShell) ou `az account list --query "[].tenantId" -o tsv | sort -u` (Linux/Mac/WSL) — deve listar 1 só, antes de cravar federated credential no Capítulo 03.
 
 ---
 

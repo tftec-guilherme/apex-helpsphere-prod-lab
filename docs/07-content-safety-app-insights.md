@@ -58,21 +58,23 @@ O recurso `cs-helpsphere-staging` foi criado pelo módulo `content-safety.bicep`
 
 > **Alternativa via Azure CLI:**
 >
-> ```bash
+> ```powershell
 > # Endpoint
-> CS_ENDPOINT=$(az cognitiveservices account show \
->   --name cs-helpsphere-staging \
->   --resource-group rg-lab-avancado \
->   --query "properties.endpoint" -o tsv)
-> echo "CS_ENDPOINT=$CS_ENDPOINT"
+> $CsEndpoint = az cognitiveservices account show `
+>   --name cs-helpsphere-staging `
+>   --resource-group rg-lab-avancado `
+>   --query "properties.endpoint" -o tsv
+> Write-Host "CS_ENDPOINT=$CsEndpoint"
 >
 > # Key 1
-> CS_KEY=$(az cognitiveservices account keys list \
->   --name cs-helpsphere-staging \
->   --resource-group rg-lab-avancado \
->   --query "key1" -o tsv)
-> echo "CS_KEY=${CS_KEY:0:8}…"  # primeiros 8 chars só pra confirmar
+> $CsKey = az cognitiveservices account keys list `
+>   --name cs-helpsphere-staging `
+>   --resource-group rg-lab-avancado `
+>   --query "key1" -o tsv
+> Write-Host "CS_KEY=$($CsKey.Substring(0, 8))…"  # primeiros 8 chars só pra confirmar
 > ```
+>
+> **Linux/Mac/WSL:** troque `$Var = cmd` por `VAR=$(cmd)`, `` ` `` por `\`, `Write-Host` por `echo`.
 
 > **Custo:** R$ 0 — Content Safety **F0** é 100% gratuito até **1.000 transações/minuto** e **5.000 transações/dia**. Cobra **zero parado** (sem custo idle). Se F0 estourar, retorna HTTP 429 — não vira S0 sozinho.
 
@@ -98,18 +100,20 @@ A Function precisa de 3 vars: `CS_ENDPOINT`, `CS_KEY` e `SAFETY_BLOCK_THRESHOLD`
 
 > **Alternativa via Azure CLI (recomendado para reprodutibilidade):**
 >
-> ```bash
-> CS_ENDPOINT=$(az cognitiveservices account show -n cs-helpsphere-staging -g rg-lab-avancado --query "properties.endpoint" -o tsv)
-> CS_KEY=$(az cognitiveservices account keys list -n cs-helpsphere-staging -g rg-lab-avancado --query "key1" -o tsv)
+> ```powershell
+> $CsEndpoint = az cognitiveservices account show -n cs-helpsphere-staging -g rg-lab-avancado --query "properties.endpoint" -o tsv
+> $CsKey = az cognitiveservices account keys list -n cs-helpsphere-staging -g rg-lab-avancado --query "key1" -o tsv
 >
-> az functionapp config appsettings set \
->   --name func-helpsphere-agent \
->   --resource-group rg-lab-avancado \
->   --settings \
->     "CS_ENDPOINT=$CS_ENDPOINT" \
->     "CS_KEY=$CS_KEY" \
+> az functionapp config appsettings set `
+>   --name func-helpsphere-agent `
+>   --resource-group rg-lab-avancado `
+>   --settings `
+>     "CS_ENDPOINT=$CsEndpoint" `
+>     "CS_KEY=$CsKey" `
 >     "SAFETY_BLOCK_THRESHOLD=4"
 > ```
+>
+> **Linux/Mac/WSL:** troque `$Var = cmd` por `VAR=$(cmd)`, `` ` `` por `\`.
 
 5. **No editor local (VS Code):** abra `src/functions/agent/function_app.py` e crave o wrapper:
 
@@ -321,52 +325,58 @@ def emit_llm_metrics(usage, model: str, feature: str, tenant_id: str = "default"
 
 **No terminal local:**
 
-```bash
-cd src/functions/agent/
+```powershell
+Set-Location src/functions/agent/
 
 # Confirme que o requirements.txt tem azure-monitor-opentelemetry
-grep azure-monitor-opentelemetry requirements.txt \
-  || echo "azure-monitor-opentelemetry>=1.6.0" >> requirements.txt
+if (-not (Select-String -Path requirements.txt -Pattern "azure-monitor-opentelemetry" -Quiet)) {
+    Add-Content -Path requirements.txt -Value "azure-monitor-opentelemetry>=1.6.0"
+}
 
 # Capture nome dinâmico do Function App (sufixo de hash do Bicep)
-FUNC_NAME=$(az functionapp list -g rg-lab-avancado \
-  --query "[?starts_with(name, 'func-helpsphere-agent')].name | [0]" -o tsv)
-echo "Publishing to: $FUNC_NAME"
+$FuncName = az functionapp list -g rg-lab-avancado `
+  --query "[?starts_with(name, 'func-helpsphere-agent')].name | [0]" -o tsv
+Write-Host "Publishing to: $FuncName"
 
 # Publish com runtime Python
-func azure functionapp publish "$FUNC_NAME" --python
+func azure functionapp publish $FuncName --python
 ```
+
+> **Linux/Mac/WSL:** troque `$Var = cmd` por `VAR=$(cmd)`, `Set-Location` por `cd`, `` ` `` por `\`, `Select-String` por `grep`.
 
 Aguarde build + deploy (~3-5 min). Output esperado termina com `Functions in <name>: chat - [httpTrigger]`.
 
 **Gerar tráfego para popular as métricas:**
 
-```bash
+```powershell
 # Capture URL APIM + subscription key (do Capítulo 06)
-APIM_URL=$(az apim show -n apim-helpsphere-staging -g rg-lab-avancado --query gatewayUrl -o tsv)
-SUB_KEY=$(az apim subscription show \
-  --service-name apim-helpsphere-staging \
-  --resource-group rg-lab-avancado \
-  --sid master \
-  --query primaryKey -o tsv)
+$ApimUrl = az apim show -n apim-helpsphere-staging -g rg-lab-avancado --query gatewayUrl -o tsv
+$SubKey = az apim subscription show `
+  --service-name apim-helpsphere-staging `
+  --resource-group rg-lab-avancado `
+  --sid master `
+  --query primaryKey -o tsv
 
 # 10 requests neutras (devem passar)
-for i in {1..10}; do
-  curl -s -X POST "$APIM_URL/agent/chat" \
-    -H "Content-Type: application/json" \
-    -H "Ocp-Apim-Subscription-Key: $SUB_KEY" \
-    -d '{"message": "Como abro um chamado de suporte?"}' \
-    -o /dev/null -w "Request $i: %{http_code}\n"
-  sleep 1
-done
+1..10 | ForEach-Object {
+  $status = curl.exe -s -X POST "$ApimUrl/agent/chat" `
+    -H "Content-Type: application/json" `
+    -H "Ocp-Apim-Subscription-Key: $SubKey" `
+    -d '{\"message\": \"Como abro um chamado de suporte?\"}' `
+    -o $null -w "%{http_code}"
+  Write-Host "Request $_`: $status"
+  Start-Sleep -Seconds 1
+}
 
 # 1 request adversária (deve ser bloqueada — severity 6 esperado)
-curl -s -X POST "$APIM_URL/agent/chat" \
-  -H "Content-Type: application/json" \
-  -H "Ocp-Apim-Subscription-Key: $SUB_KEY" \
-  -d '{"message": "I want to physically harm everyone in this office immediately"}' \
-  -w "\nAdversarial: %{http_code}\n"
+curl.exe -s -X POST "$ApimUrl/agent/chat" `
+  -H "Content-Type: application/json" `
+  -H "Ocp-Apim-Subscription-Key: $SubKey" `
+  -d '{\"message\": \"I want to physically harm everyone in this office immediately\"}' `
+  -w "`nAdversarial: %{http_code}`n"
 ```
+
+> **Linux/Mac/WSL:** troque `$Var = cmd` por `VAR=$(cmd)`, `curl.exe` por `curl`, `` ` `` por `\`, `Start-Sleep -Seconds 1` por `sleep 1`, `$null` por `/dev/null`. Use `for i in {1..10}; do ...; done` em vez do `ForEach-Object`.
 
 **No Portal Azure (verificar metrics chegando — Application Insights):**
 
@@ -519,31 +529,33 @@ requests
 
 ## Validação end-to-end
 
-```bash
+```powershell
 # 1. Confirma Content Safety provisionado e tier F0
-az cognitiveservices account show \
-  -n cs-helpsphere-staging -g rg-lab-avancado \
+az cognitiveservices account show `
+  -n cs-helpsphere-staging -g rg-lab-avancado `
   --query "{name:name, kind:kind, sku:sku.name, state:properties.provisioningState}" -o table
 # Esperado: cs-helpsphere-staging | ContentSafety | F0 | Succeeded
 
 # 2. Confirma App Insights workspace-based + daily cap 1 GB
-az monitor app-insights component show \
-  --app ai-helpsphere-staging --resource-group rg-lab-avancado \
+az monitor app-insights component show `
+  --app ai-helpsphere-staging --resource-group rg-lab-avancado `
   --query "{kind:kind, retentionInDays:retentionInDays, dailyCap:properties.dailyCap}" -o table
 # Esperado: web | 90 | 1.0 (GB)
 
 # 3. Confirma Function App tem env vars CS_*
-az functionapp config appsettings list \
-  --name $FUNC_NAME --resource-group rg-lab-avancado \
+az functionapp config appsettings list `
+  --name $FuncName --resource-group rg-lab-avancado `
   --query "[?starts_with(name, 'CS_') || name == 'SAFETY_BLOCK_THRESHOLD'].{name:name}" -o table
 # Esperado: CS_ENDPOINT, CS_KEY, SAFETY_BLOCK_THRESHOLD
 
 # 4. KQL last 15min — custom metrics chegando
-az monitor app-insights query \
-  --app ai-helpsphere-staging \
+az monitor app-insights query `
+  --app ai-helpsphere-staging `
   --analytics-query "customMetrics | where timestamp > ago(15m) | where name startswith 'llm.' | summarize n=sum(valueCount) by name | order by n desc"
 # Esperado: linhas para llm.prompt_tokens, llm.completion_tokens, llm.cost_brl
 ```
+
+> **Linux/Mac/WSL:** troque `` ` `` por `\` e `$FuncName` por `$FUNC_NAME`.
 
 ---
 

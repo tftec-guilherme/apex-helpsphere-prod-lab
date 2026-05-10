@@ -30,7 +30,7 @@ APIM SKU **Developer** **não tem auto-pause**. O recurso é cobrado **mesmo sem
 
 ### Cleanup OBRIGATÓRIO (cravar no calendário)
 
-```bash
+```powershell
 # AO FIM da gravação ou da prática, OBRIGATÓRIO rodar:
 az group delete --name rg-lab-avancado --yes --no-wait
 
@@ -106,17 +106,20 @@ Re-deploy via `cd-staging.yml`. **Atenção:** vários Passos abaixo assumem Dev
 
 > **Alternativa via Azure CLI (polling em loop até `Online`):**
 >
-> ```bash
+> ```powershell
 > # Verifica state pontual
 > az apim show -n apim-helpsphere-staging -g rg-lab-avancado --query "provisioningState" -o tsv
 >
 > # Polling a cada 60s até mudar para Succeeded
-> until [ "$(az apim show -n apim-helpsphere-staging -g rg-lab-avancado --query 'provisioningState' -o tsv)" = "Succeeded" ]; do
->   echo "Aguardando APIM... $(date '+%H:%M:%S')"
->   sleep 60
-> done
-> echo "✅ APIM Online — Gateway URL: $(az apim show -n apim-helpsphere-staging -g rg-lab-avancado --query gatewayUrl -o tsv)"
+> while ((az apim show -n apim-helpsphere-staging -g rg-lab-avancado --query 'provisioningState' -o tsv) -ne "Succeeded") {
+>   Write-Host "Aguardando APIM... $(Get-Date -Format 'HH:mm:ss')"
+>   Start-Sleep -Seconds 60
+> }
+> $GatewayUrl = az apim show -n apim-helpsphere-staging -g rg-lab-avancado --query gatewayUrl -o tsv
+> Write-Host "✅ APIM Online — Gateway URL: $GatewayUrl"
 > ```
+>
+> **Linux/Mac/WSL:** use `until [ "$(...)" = "Succeeded" ]; do echo ...; sleep 60; done` com `$(date '+%H:%M:%S')`.
 
 > **Custo:** R$ 250/mês ligado independentemente de você estar olhando ou não — o relógio começou no momento do `az deployment group create` do Capítulo 05. Se cleanup acontecer no mesmo dia: ~R$ 8 absolutos (8 horas × R$ 1/h aproximado).
 
@@ -134,13 +137,15 @@ Re-deploy via `cd-staging.yml`. **Atenção:** vários Passos abaixo assumem Dev
 >
 > **(a) Re-provisionar mock rapidamente via Bicep `func-mock.bicep` (RECOMENDADO, ~3 min):** placeholder Function App com endpoint `/api/agent/chat` retornando JSON 200 estático. Suficiente pra validar import APIM + policies inbound (JWT, rate-limit, CORS) sem 502 do backend. Bicep fornecido no monorepo `azure-retail` em `Disciplina_06_*/03_Aplicacoes/lab-avancado/func-mock/`. Deploy:
 >
-> ```bash
-> az deployment group create \
->   --resource-group rg-lab-avancado \
->   --template-file infra-mocks/func-mock.bicep \
+> ```powershell
+> az deployment group create `
+>   --resource-group rg-lab-avancado `
+>   --template-file infra-mocks/func-mock.bicep `
 >   --parameters location=eastus2
 > # Depois: func azure functionapp publish func-helpsphere-agent --python  (~2min)
 > ```
+>
+> **Linux/Mac/WSL:** troque `` ` `` (backtick) por `\` para continuação de linha.
 >
 > **(b) Re-provisionar Lab Final Parte 3 só pra esse Passo (~20 min):** retoma do Lab Final apenas o Function App + Foundry agent registration. Útil se você quer testar APIM + Content Safety + Foundry real end-to-end. Mais lento, mais caro (~R$ 5 a mais), mais realista pedagogicamente.
 >
@@ -167,22 +172,24 @@ Re-deploy via `cd-staging.yml`. **Atenção:** vários Passos abaixo assumem Dev
 
 > **Alternativa via Azure CLI:**
 >
-> ```bash
+> ```powershell
 > # Captura o resourceId da Function App
-> FUNC_ID=$(az functionapp show -n func-helpsphere-agent -g rg-lab-avancado --query id -o tsv)
-> echo "Function ID: $FUNC_ID"
+> $FuncId = az functionapp show -n func-helpsphere-agent -g rg-lab-avancado --query id -o tsv
+> Write-Host "Function ID: $FuncId"
 >
 > # Import API via CLI (equivalente ao wizard Portal)
-> az apim api import \
->   --resource-group rg-lab-avancado \
->   --service-name apim-helpsphere-staging \
->   --api-id helpsphere-agent \
->   --display-name "HelpSphere Agent API" \
->   --path agent \
->   --specification-format OpenApiJson \
->   --service-url "https://func-helpsphere-agent.azurewebsites.net" \
+> az apim api import `
+>   --resource-group rg-lab-avancado `
+>   --service-name apim-helpsphere-staging `
+>   --api-id helpsphere-agent `
+>   --display-name "HelpSphere Agent API" `
+>   --path agent `
+>   --specification-format OpenApiJson `
+>   --service-url "https://func-helpsphere-agent.azurewebsites.net" `
 >   --subscription-required true
 > ```
+>
+> **Linux/Mac/WSL:** troque `$FuncId = cmd` por `FUNC_ID=$(cmd)`, `$FuncId` por `"$FUNC_ID"`, `` ` `` por `\`.
 
 > **Custo:** zero adicional — APIM já está cobrando R$ 8/dia desde Passo 4.1. Importar API + criar policies não move o ponteiro.
 
@@ -306,15 +313,17 @@ A policy é o coração do APIM como gateway: 1 XML cobre auth, throttling, CORS
 
 > **Alternativa via Azure CLI (atomic policy update):**
 >
-> ```bash
-> # Salve o XML acima em /tmp/apim-inbound.xml localmente, com {{tenant-id}} já correto
-> az apim api policy create \
->   --resource-group rg-lab-avancado \
->   --service-name apim-helpsphere-staging \
->   --api-id helpsphere-agent \
->   --policy-format xml \
->   --value "@/tmp/apim-inbound.xml"
+> ```powershell
+> # Salve o XML acima em $env:TEMP\apim-inbound.xml localmente, com {{tenant-id}} já correto
+> az apim api policy create `
+>   --resource-group rg-lab-avancado `
+>   --service-name apim-helpsphere-staging `
+>   --api-id helpsphere-agent `
+>   --policy-format xml `
+>   --value "@$env:TEMP\apim-inbound.xml"
 > ```
+>
+> **Linux/Mac/WSL:** use `/tmp/apim-inbound.xml`, troque `` ` `` por `\`.
 
 > **Custo:** zero adicional. Policy execution é incluída no tier Developer/Premium (não há cobrança por execução de policy).
 
@@ -342,10 +351,12 @@ A policy é o coração do APIM como gateway: 1 XML cobre auth, throttling, CORS
 4. **Cenário 2 — com token Entra válido (esperado: 200):**
    - Localmente, capture um token de acesso para a API:
 
-     ```bash
-     TOKEN=$(az account get-access-token --resource api://helpsphere-ia --query accessToken -o tsv)
-     echo "$TOKEN" | head -c 60 ; echo "..."  # Confirme que tem ~1500 chars
+     ```powershell
+     $Token = az account get-access-token --resource api://helpsphere-ia --query accessToken -o tsv
+     Write-Host ($Token.Substring(0, 60) + "...")  # Confirme que tem ~1500 chars
      ```
+
+     **Linux/Mac/WSL:** `TOKEN=$(az account get-access-token --resource api://helpsphere-ia --query accessToken -o tsv); echo "$TOKEN" | head -c 60; echo "..."`
 
    - Volte ao Test blade → tab **Headers** → **+ Add header**:
      - **Name:** `Authorization` · **Value:** `Bearer <cole o token>`
@@ -358,33 +369,39 @@ A policy é o coração do APIM como gateway: 1 XML cobre auth, throttling, CORS
 5. **Cenário 3 — rate-limit (esperado: 429 após 100 chamadas):**
    - Para validar rate-limit-by-key, rode em loop:
 
-     ```bash
-     for i in $(seq 1 105); do
-       curl -s -o /dev/null -w "$i: %{http_code}\n" \
-         -X POST "https://apim-helpsphere-staging.azure-api.net/agent/api/agent/chat" \
-         -H "Authorization: Bearer $TOKEN" \
-         -H "Content-Type: application/json" \
+     ```powershell
+     1..105 | ForEach-Object {
+       $i = $_
+       $code = curl.exe -s -o $null -w "%{http_code}" `
+         -X POST "https://apim-helpsphere-staging.azure-api.net/agent/api/agent/chat" `
+         -H "Authorization: Bearer $Token" `
+         -H "Content-Type: application/json" `
          -d '{"message":"loop"}'
-     done
+       Write-Host "${i}: $code"
+     }
      ```
+
+     **Linux/Mac/WSL:** `for i in $(seq 1 105); do curl -s -o /dev/null -w "$i: %{http_code}\n" -X POST ... -H "Authorization: Bearer $TOKEN" ...; done` com `\` no fim de cada linha.
 
    - Esperado: chamadas 1-100 retornam 200, chamadas 101-105 retornam **429 Too Many Requests** (rate-limit-by-key cravando)
 
 > **Alternativa via curl externo (sem Test blade):**
 >
-> ```bash
-> APIM_URL=$(az apim show -n apim-helpsphere-staging -g rg-lab-avancado --query gatewayUrl -o tsv)
+> ```powershell
+> $ApimUrl = az apim show -n apim-helpsphere-staging -g rg-lab-avancado --query gatewayUrl -o tsv
 >
 > # Sem token — esperado 401
-> curl -i "$APIM_URL/agent/api/agent/chat"
+> curl.exe -i "$ApimUrl/agent/api/agent/chat"
 >
 > # Com token Entra
-> TOKEN=$(az account get-access-token --resource api://helpsphere-ia --query accessToken -o tsv)
-> curl -i -X POST "$APIM_URL/agent/api/agent/chat" \
->   -H "Authorization: Bearer $TOKEN" \
->   -H "Content-Type: application/json" \
+> $Token = az account get-access-token --resource api://helpsphere-ia --query accessToken -o tsv
+> curl.exe -i -X POST "$ApimUrl/agent/api/agent/chat" `
+>   -H "Authorization: Bearer $Token" `
+>   -H "Content-Type: application/json" `
 >   -d '{"message": "Olá"}'
 > ```
+>
+> **Linux/Mac/WSL:** troque `$ApimUrl = cmd` por `APIM_URL=$(cmd)`, `$ApimUrl` por `"$APIM_URL"`, `curl.exe` por `curl`, `` ` `` por `\`.
 
 > **Custo:** chamadas Test blade são gratuitas (Developer SKU inclui chamadas ilimitadas). Apenas o backend Function App cobra por execução (free tier ou Consumption ~R$ 0,002 por chamada).
 
@@ -405,38 +422,40 @@ A policy é o coração do APIM como gateway: 1 XML cobre auth, throttling, CORS
 
 ## Validação end-to-end
 
-```bash
+```powershell
 # 1. Confirma APIM Online + Gateway URL
-az apim show -n apim-helpsphere-staging -g rg-lab-avancado \
+az apim show -n apim-helpsphere-staging -g rg-lab-avancado `
   --query "{name:name, state:provisioningState, sku:sku.name, gatewayUrl:gatewayUrl}" -o table
 # Esperado: state=Succeeded, sku=Developer
 
 # 2. Lista APIs registradas
-az apim api list -g rg-lab-avancado --service-name apim-helpsphere-staging \
+az apim api list -g rg-lab-avancado --service-name apim-helpsphere-staging `
   --query "[].{id:name, path:path, displayName:displayName}" -o table
 # Esperado: 1+ linha com id=helpsphere-agent, path=agent
 
 # 3. Captura subscription key built-in (master)
-APIM_KEY=$(az apim subscription show \
-  --resource-group rg-lab-avancado \
-  --service-name apim-helpsphere-staging \
-  --sid master \
-  --query primaryKey -o tsv)
+$ApimKey = az apim subscription show `
+  --resource-group rg-lab-avancado `
+  --service-name apim-helpsphere-staging `
+  --sid master `
+  --query primaryKey -o tsv
 
 # 4. Smoke sem token → 401 esperado
-curl -i -X POST "https://apim-helpsphere-staging.azure-api.net/agent/api/agent/chat" \
-  -H "Ocp-Apim-Subscription-Key: $APIM_KEY"
+curl.exe -i -X POST "https://apim-helpsphere-staging.azure-api.net/agent/api/agent/chat" `
+  -H "Ocp-Apim-Subscription-Key: $ApimKey"
 # Esperado: HTTP/1.1 401 Unauthorized
 
 # 5. Smoke com token → 200 esperado
-TOKEN=$(az account get-access-token --resource api://helpsphere-ia --query accessToken -o tsv)
-curl -i -X POST "https://apim-helpsphere-staging.azure-api.net/agent/api/agent/chat" \
-  -H "Ocp-Apim-Subscription-Key: $APIM_KEY" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
+$Token = az account get-access-token --resource api://helpsphere-ia --query accessToken -o tsv
+curl.exe -i -X POST "https://apim-helpsphere-staging.azure-api.net/agent/api/agent/chat" `
+  -H "Ocp-Apim-Subscription-Key: $ApimKey" `
+  -H "Authorization: Bearer $Token" `
+  -H "Content-Type: application/json" `
   -d '{"message":"smoke"}'
 # Esperado: HTTP/1.1 200 OK com body do backend
 ```
+
+> **Linux/Mac/WSL:** troque `$ApimKey = cmd` por `APIM_KEY=$(cmd)`, `$Token = cmd` por `TOKEN=$(cmd)`, referências `$ApimKey`/`$Token` por `"$APIM_KEY"`/`"$TOKEN"`, `curl.exe` por `curl`, `` ` `` por `\`.
 
 ---
 

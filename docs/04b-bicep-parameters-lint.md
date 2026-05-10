@@ -101,7 +101,7 @@ Crie 3 arquivos dentro de `infra/envs/`:
 1. **Compila** o `.bicep` em ARM JSON (fonte real que o ARM aceita)
 2. **Lint local** que detecta erros de sintaxe + warnings de best practice
 
-```bash
+```powershell
 # Build do main.bicep (entry point) → gera infra/main.json
 az bicep build --file infra/main.bicep
 
@@ -111,6 +111,8 @@ az bicep build --file infra/modules/content-safety.bicep
 az bicep build --file infra/modules/app-insights.bicep
 az bicep build --file infra/modules/policy.bicep
 ```
+
+> **Linux/Mac/WSL:** comandos `az` são idênticos — apenas o shell muda quando há variáveis/pipes/redirects.
 
 **Saída esperada (sucesso):**
 - Sem mensagens em stdout/stderr → tudo OK
@@ -125,19 +127,23 @@ infra/modules/policy.bicep(45,7) : Error BCP118: Expected the "@" character at t
 
 > **Alternativa — só lint sem gerar JSON (mais rápido):**
 >
-> ```bash
+> ```powershell
 > # Roda só o lint, sem produzir arquivos .json (~3x mais rápido)
-> az bicep build --file infra/main.bicep --stdout > /dev/null
+> az bicep build --file infra/main.bicep --stdout | Out-Null
 > ```
+>
+> > **Linux/Mac/WSL:** troque `| Out-Null` por `> /dev/null`.
 
 > **Custo:** zero — `az bicep build` roda 100% localmente, não chama Azure ARM API.
 
 > **Nota pedagógica — `--diagnostics-level error` filtra só erros (ignora warnings):**
 >
-> ```bash
+> ```powershell
 > # Filtrar só erros (suprimir warnings) — útil em CI quando warnings ainda não foram corrigidos
 > az bicep build --file infra/main.bicep --diagnostics-level error
 > ```
+>
+> > **Linux/Mac/WSL:** comando idêntico — sem variáveis nem redirects.
 >
 > Em CI (Capítulo 05), você quer **failar só em erros**, não em warnings (que podem ser secure-by-default mas não bloqueantes). O flag `--diagnostics-level error` é o que usamos no `lint-bicep` job do `ci.yml`.
 
@@ -149,13 +155,15 @@ infra/modules/policy.bicep(45,7) : Error BCP118: Expected the "@" character at t
 
 What-if mostra **o que o deployment criaria/modificaria** sem realmente provisionar. Ferramenta canônica para revisão pré-deploy.
 
-```bash
+```powershell
 # What-if no escopo do RG (main.bicep) — ambiente DEV
-az deployment group what-if \
-  --resource-group rg-lab-avancado \
-  --template-file infra/main.bicep \
+az deployment group what-if `
+  --resource-group rg-lab-avancado `
+  --template-file infra/main.bicep `
   --parameters infra/envs/dev.parameters.json
 ```
+
+> **Linux/Mac/WSL:** troque `` ` `` por `\`.
 
 **Saída esperada (formato resumido):**
 
@@ -190,18 +198,19 @@ Resource changes: 3 to create.
 
 > **Alternativa — what-if do `policy.bicep` (subscription scope):**
 >
-> ```bash
+> ```powershell
 > # Capture o object ID do SP do GitHub Actions
-> SP_OBJECT_ID=$(az ad sp show \
->   --id $(az ad sp list --display-name "sp-github-actions-helpsphere" --query "[0].appId" -o tsv) \
->   --query id -o tsv)
+> $AppId = az ad sp list --display-name "sp-github-actions-helpsphere" --query "[0].appId" -o tsv
+> $SpObjectId = az ad sp show --id $AppId --query id -o tsv
 >
 > # What-if no scope = subscription (note: deployment SUB, não deployment GROUP)
-> az deployment sub what-if \
->   --location eastus2 \
->   --template-file infra/modules/policy.bicep \
->   --parameters githubActionsSpObjectId=$SP_OBJECT_ID targetRgName=rg-lab-avancado
+> az deployment sub what-if `
+>   --location eastus2 `
+>   --template-file infra/modules/policy.bicep `
+>   --parameters githubActionsSpObjectId=$SpObjectId targetRgName=rg-lab-avancado
 > ```
+>
+> > **Linux/Mac/WSL:** troque `$Var = cmd` por `VAR=$(cmd)`, `` ` `` por `\`, `$Var` por `"$VAR"`.
 >
 > Saída esperada: 5 recursos `+ Create` (2 role assignments + 3 policy definitions + 3 policy assignments = 8 totais; mas roleAssignments dedupados via `guid()` podem ser idempotentes).
 
@@ -217,7 +226,7 @@ Resource changes: 3 to create.
 
 Agora que tudo passa lint + what-if, é hora de commitar **todos** os 8 arquivos de uma vez (5 .bicep + 3 .json). Atomic commit: `infra/` chega no repo já validado.
 
-```bash
+```powershell
 # Confirmar diff
 git status
 git diff --stat
@@ -242,6 +251,8 @@ git add infra/main.bicep infra/modules/ infra/envs/
 git commit -m "feat: Bicep templates parametrizados para 3 envs (dev/staging/prod)"
 ```
 
+> **Linux/Mac/WSL:** comandos `git` são idênticos — funciona igual em qualquer shell.
+
 <!-- screenshot: cap04b-passo2.8-terminal-git-commit-infra.png -->
 
 > **Atenção `.gitignore`:** se você deixou os `.json` compilados (`infra/*.json`, `infra/modules/*.json`) sem adicionar a `.gitignore`, eles vão pro repo. **Pattern recomendado:** crie `.gitignore` com:
@@ -264,26 +275,28 @@ git commit -m "feat: Bicep templates parametrizados para 3 envs (dev/staging/pro
 
 ## Validação end-to-end
 
-```bash
+```powershell
 # 1. Confirmar 5 arquivos .bicep válidos
-for f in infra/main.bicep infra/modules/*.bicep; do
-  echo "=== Validating: $f ==="
-  az bicep build --file "$f" --diagnostics-level error
-done
+$BicepFiles = @('infra/main.bicep') + (Get-ChildItem infra/modules/*.bicep | ForEach-Object { $_.FullName })
+foreach ($f in $BicepFiles) {
+  Write-Host "=== Validating: $f ==="
+  az bicep build --file $f --diagnostics-level error
+}
 # Esperado: zero erros, retorno code 0 em todos
 
 # 2. Confirmar 3 parameter files válidos JSON
-for f in infra/envs/*.parameters.json; do
-  echo "=== Validating: $f ==="
-  python -m json.tool "$f" > /dev/null && echo "OK"
-done
+foreach ($f in Get-ChildItem infra/envs/*.parameters.json) {
+  Write-Host "=== Validating: $($f.Name) ==="
+  try { Get-Content $f.FullName -Raw | ConvertFrom-Json | Out-Null; Write-Host "OK" }
+  catch { Write-Host "FALHOU: $_" }
+}
 # Esperado: "OK" 3 vezes
 
 # 3. What-if final (DEV) — deve listar 3 recursos a criar
-az deployment group what-if \
-  --resource-group rg-lab-avancado \
-  --template-file infra/main.bicep \
-  --parameters infra/envs/dev.parameters.json \
+az deployment group what-if `
+  --resource-group rg-lab-avancado `
+  --template-file infra/main.bicep `
+  --parameters infra/envs/dev.parameters.json `
   --result-format ResourceIdOnly
 # Esperado: 3 IDs novos (APIM, Content Safety, App Insights)
 
@@ -294,6 +307,8 @@ git log --oneline -1
 git status
 # Esperado: nothing to commit, working tree clean
 ```
+
+> **Linux/Mac/WSL:** troque `foreach ($f in ...)` por `for f in ...; do ... done`, `Write-Host` por `echo`, `ConvertFrom-Json` por `python -m json.tool "$f" > /dev/null`, `` ` `` por `\`.
 
 ---
 
