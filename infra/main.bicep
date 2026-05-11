@@ -1,9 +1,16 @@
 // =============================================================================
 // Apex HelpSphere — Lab Avancado D06 (IA Production-grade)
-// Entry point: subscription scope
-// Cria RG + 4 modules (apim + content-safety + app-insights + policy)
+// Entry point: resourceGroup scope
+// Deploya 4 modules (apim + content-safety + app-insights + policy) DENTRO de
+// um Resource Group EXISTENTE (criado manualmente no docs/02 — rg-lab-avancado).
+//
+// Deploy:
+//   az deployment group create \
+//     -g rg-lab-avancado \
+//     -f infra/main.bicep \
+//     -p @infra/envs/dev.parameters.json
 // =============================================================================
-targetScope = 'subscription'
+targetScope = 'resourceGroup'
 
 // -----------------------------------------------------------------------------
 // Parameters
@@ -12,14 +19,8 @@ targetScope = 'subscription'
 @allowed(['dev', 'staging', 'prod'])
 param envName string = 'dev'
 
-@description('Location for all resources')
-param location string = 'eastus2'
-
-@description('Resource group name')
-param rgName string = 'rg-helpsphere-ia-prod-${envName}'
-
 @description('Resource token for unique naming (4-13 chars deterministico)')
-param resourceToken string = take(uniqueString(subscription().id, envName), 6)
+param resourceToken string = take(uniqueString(resourceGroup().id, envName), 6)
 
 @description('APIM SKU — Developer (R$ 250/mes ligado) or Consumption (pay-per-call)')
 @allowed(['Developer', 'Consumption'])
@@ -44,22 +45,12 @@ param commonTags object = {
 }
 
 // -----------------------------------------------------------------------------
-// Resource Group
-// -----------------------------------------------------------------------------
-resource rg 'Microsoft.Resources/resourceGroups@2024-03-01' = {
-  name: rgName
-  location: location
-  tags: commonTags
-}
-
-// -----------------------------------------------------------------------------
-// Modules
+// Modules (deployam DENTRO do RG pre-existente)
 // -----------------------------------------------------------------------------
 module apim 'modules/apim.bicep' = {
-  scope: rg
   name: 'apim-${envName}'
   params: {
-    location: location
+    location: resourceGroup().location
     resourceToken: resourceToken
     apimSku: apimSku
     publisherEmail: apimPublisherEmail
@@ -69,38 +60,35 @@ module apim 'modules/apim.bicep' = {
 }
 
 module contentSafety 'modules/content-safety.bicep' = {
-  scope: rg
   name: 'content-safety-${envName}'
   params: {
-    location: location
+    location: resourceGroup().location
     resourceToken: resourceToken
     tags: commonTags
   }
 }
 
 module appInsights 'modules/app-insights.bicep' = {
-  scope: rg
   name: 'app-insights-${envName}'
   params: {
-    location: location
+    location: resourceGroup().location
     resourceToken: resourceToken
     tags: commonTags
   }
 }
 
 module policy 'modules/policy.bicep' = {
-  scope: rg
   name: 'policy-${envName}'
   params: {
-    rgName: rgName
-    location: location
+    rgName: resourceGroup().name
+    location: resourceGroup().location
   }
 }
 
 // -----------------------------------------------------------------------------
 // Outputs
 // -----------------------------------------------------------------------------
-output rgName string = rg.name
+output rgName string = resourceGroup().name
 output apimName string = apim.outputs.apimName
 output apimGatewayUrl string = apim.outputs.gatewayUrl
 output contentSafetyEndpoint string = contentSafety.outputs.endpoint

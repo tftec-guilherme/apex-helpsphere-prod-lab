@@ -6,6 +6,42 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/), 
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-05-10
+
+### Changed (BREAKING)
+
+- **Removido `.github/workflows/`** — Lab Avançado vira 100% Portal+CLI manual. CI/CD via GitHub Actions sai do escopo desta versão (capítulo futuro). Os 3 workflows (`ci.yml`, `cd-staging.yml`, `cd-prod.yml`) e o diretório `.github/` inteiro foram excluídos.
+- **Bicep `targetScope='resourceGroup'`** — `infra/main.bicep` não cria mais o RG. Aluno cria `rg-lab-avancado` manualmente (docs/02) e deploya com `az deployment group create -g rg-lab-avancado`. Removidos params `rgName` e `location` (substituídos por `resourceGroup().name` e `resourceGroup().location`). Compilado ARM `infra/main.json` removido (stale).
+- **RG canonical: `rg-lab-avancado`** — alinhado com pattern dos Labs Inter (`rg-lab-intermediario`) e Final (`rg-lab-final`). Substitui antigo `rg-helpsphere-ia-prod-{env}` em todos os arquivos (`infra/envs/*.parameters.json`, `README.md`). Cleanup vira UM único `az group delete --name rg-lab-avancado` (não 3 envs).
+- **`docs/05-github-actions-pipelines.md` reescrito** para "Aplicar Bicep via Azure CLI" — 7 Passos PowerShell-first (`what-if` + 3 deploys + listar deployments + validação + checklist). Arquivo encolhe de 508L para 323L; substitui 3 workflows YAML por 3 comandos `az deployment group create`.
+- **`docs/03-service-principal-federated.md` marcado como OPCIONAL** — SP federado não é mais pré-requisito para Cap 04+. Mantido como artefato pedagógico para alunos que querem aprender OIDC pattern ou estender lab com CI/CD próprio. Pré-requisito real reduz para `az login` + role Contributor em `rg-lab-avancado`.
+- **PARA-O-ALUNO.md clarificado** — Lab Avançado é STACK PARALELA à SaaS (não em cima dela). Recursos isolados em `rg-lab-avancado` para fins pedagógicos. 8 pré-requisitos → 7 (item GitHub repo marcado opcional). 3 disclaimers HIGH → 2 (R6 ABAC removido — não relevante sem CI/CD).
+- **README.md atualizado** — status v0.3.0-cli-manual. Quick start PowerShell-first com 7 passos. Pré-requisitos reorganizados (3 críticos + 5 opcionais). Stack production-grade table sem linha GitHub Actions. Cleanup com 1 comando único.
+- **`infra/envs/*.parameters.json`** (3 arquivos: dev/staging/prod) — removidos params `location` e `rgName` (não usados mais pelo Bicep — RG vem do CLI `-g rg-lab-avancado` e location vem de `resourceGroup().location`).
+
+### Rationale (D1-D5 decisões prof)
+
+| Decisão | Conteúdo | Impacto |
+|---------|----------|---------|
+| D1 | RG canonical = `rg-lab-avancado` | Alinhamento com Labs Inter/Final |
+| D2 | Bicep `targetScope='resourceGroup'` | Bicep não cria RG; aluno cria manual |
+| D3 | Remover `.github/workflows/` | Lab vira 100% Portal+CLI manual |
+| D4 | (não aplicado nesta release) | — |
+| D5 | Stack isolada (não consome SaaS) | Recursos paralelos em RG dedicado |
+
+### Migration notes (de v0.2.0 para v0.3.0)
+
+- Quem já tinha `rg-helpsphere-ia-prod-{env}` provisionado: continua usando até cleanup; novos deploys vão para `rg-lab-avancado`
+- Quem tinha SP federado funcional: continua válido para uso fora deste lab (capítulo futuro CI/CD); pode deletar via `docs/10-cleanup.md` se não for usar
+- Quem deployava via `az deployment sub create`: migrar para `az deployment group create -g rg-lab-avancado` (mudança no comando obrigatória — não há mais subscription-scope)
+
+### Cross-references
+
+- Story 06.19: `azure-retail/docs/stories/06.19.lab-avancado-azure-alignment.md`
+- Decisões D1-D5 do prof: 2026-05-10
+- Audit fonte: subagente Explore `ab6651add368bee88`
+- Predecessor: Story 06.16 (PowerShell-first refactor — manteve docs alinhados durante este pivot)
+
 ## [0.2.0] - 2026-05-10
 
 ### Changed

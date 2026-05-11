@@ -1,502 +1,320 @@
-# Capítulo 05 — GitHub Actions pipelines
+# Capítulo 05 — Aplicar infra com Azure CLI
 
-> **Objetivo:** criar 3 workflows GitHub Actions production-grade (CI + CD Staging + CD Prod com manual approval gate), configurar 2 GitHub Environments (`staging` + `production`) com protection rules, e disparar o primeiro deploy end-to-end via OIDC federated credential (sem secret armazenado).
+> **Objetivo:** aplicar o Bicep validado no Capítulo 04 para deployar a stack production-grade nos 3 ambientes (`dev`, `staging`, `prod`) usando `az deployment group create` — Portal+CLI manual, sem CI/CD automatizado.
 >
-> **Tempo:** 90-120 min (não inclui ~30-45 min de provisão APIM em background)
+> **Tempo:** 30-45 min (não inclui ~30-45 min de provisão APIM em background — você inicia, abre outro terminal e segue Capítulos 06+ enquanto roda)
 >
-> **Status:** `v0.2.0-piloto` ⚠️ EXPANDIDO (era `v0.1.0-init` outline) — derivado de `Lab_Avancado_IA_Producao_Guia_Portal.md` Parte 3 (Passos 3.1-3.7) + Parte 1 (Passos 1.3-1.5)
+> **Status:** `v0.3.0-cli-manual` ⚠️ REESCRITO — versão `v0.2.0-piloto` cobria GitHub Actions com 3 workflows + Federated SP, escopo removido nesta versão para reduzir superfície de falha (ABAC, OIDC trust, environments). Esta versão é **100% Portal+CLI manual**.
 
 ---
 
-## DISCLAIMER R6 (recap obrigatório) — CI/CD requer sub sem ABAC
+## Nota — CI/CD via GitHub Actions é capítulo futuro
 
-Ver `docs/03-service-principal-federated.md` para detalhes completos. **TL;DR:** este lab assume sub TFTEC sem ABAC OU sub PAYG sem ABAC OU sub corporate. Em VSE pessoal `live.com` com ABAC, **CI workflow falha** ao fazer role assignments. Você ainda consegue rodar `az deployment group create` localmente, mas perde o valor pedagógico do CI/CD demo.
+Versões anteriores deste Capítulo cravavam **3 workflows GitHub Actions** (`ci.yml` + `cd-staging.yml` + `cd-prod.yml`) com OIDC Federated Service Principal + 2 GitHub Environments + approval gate manual em prod. Essa abordagem **fica fora do escopo desta versão** por 3 motivos:
+
+1. **Superfície de falha grande** — federated SP exige sub sem ABAC (R6); subs `live.com` VSE pessoais bloqueiam role assignment.
+2. **Acoplamento com GitHub** — aluno precisa de scope `workflow` + `delete_repo` no `gh` CLI, branch protection cravada antes, environments configurados.
+3. **Foco pedagógico** — esta versão prioriza **dominar Bicep + Azure CLI primeiro**. CI/CD vira capítulo dedicado em release futura (production-grade canônico **assumindo** que aluno já entendeu o Bicep).
+
+Aluno que terminar este Lab Avançado e quiser CI/CD: estude OIDC Federated SP, `azure/login@v2`, GitHub Environments com `required reviewers`. Pattern não muda — só onde o `az deployment group create` é chamado (runner ubuntu em vez de máquina local).
 
 ---
 
 ## Pré-requisitos
 
-- ✅ Capítulo 02 concluído — RG `rg-lab-avancado` existe e tags `cost-center=apex-helpsphere-ia environment=lab application=helpsphere-ia` aplicadas
-- ✅ Capítulo 03 concluído — Service Principal `sp-github-actions-helpsphere` criado com role **Contributor** scoped em `rg-lab-avancado` + 2 federated credentials (main branch + pull_request)
+- ✅ Capítulo 02 concluído — RG `rg-lab-avancado` existe em East US 2 com 4 tags FinOps aplicadas
 - ✅ Capítulo 04a concluído — Bicep modules em `infra/main.bicep` + `infra/modules/{apim,content-safety,app-insights,policy}.bicep`
-- ✅ Capítulo 04b concluído — parameter files `infra/envs/{dev,staging,prod}.parameters.json` validados via `az bicep build` + `what-if`, commit local consolidado pronto pra push
-- ✅ GitHub Secrets registrados no repo `helpsphere-ia` (cravados no Capítulo 03):
-  - `AZURE_TENANT_ID`
-  - `AZURE_SUBSCRIPTION_ID`
-  - `AZURE_CLIENT_ID`
-  - `AOAI_API_KEY` (necessário para o job `eval-offline`)
-- ✅ `az` CLI logado e `gh` CLI autenticado (usados nas Alternativas CLI)
-- ✅ VS Code com extensão **GitHub Actions** instalada (sintaxe highlight + validation)
+- ✅ Capítulo 04b concluído — parameter files `infra/envs/{dev,staging,prod}.parameters.json` validados via `az bicep build` + `what-if`
+- ✅ `az` CLI logado na subscription correta (`az account show` confirma)
+- ✅ Bicep CLI atualizado (`az bicep version` `>=0.30`)
+- ✅ PowerShell 7+ no Windows (ou bash em Linux/Mac/WSL) — comandos abaixo são PowerShell-first
+
+> **Nota — Capítulo 03 opcional:** o Capítulo 03 (Service Principal Federated) ficou marcado como **OPCIONAL** nesta versão. O SP federado só seria necessário para CI/CD via GitHub Actions (fora do escopo). Se você pulou o Cap 03, segue tudo normal — `az deployment group create` usa o usuário logado em `az login`.
 
 ---
 
-## Resumo dos 3 workflows que vamos cravar
+## Resumo dos 4 deploys que vamos cravar
 
-| Workflow | Trigger | Jobs | Environment | Approval gate? |
-|---|---|---|---|---|
-| `ci.yml` | `pull_request` em `main` + `push` em `main` | `lint-bicep` · `lint-python` · `bicep-what-if` (só em PR) | — | Não |
-| `cd-staging.yml` | `push` em `main` (auto após PR merged) | `deploy-staging` · `eval-offline` | `staging` | Não |
-| `cd-prod.yml` | `workflow_dispatch` (manual) | `validate` · `deploy-prod` · `rollback` (em failure) | `production` | **SIM** (required reviewer) |
+| # | Etapa | Comando | Tempo |
+|---|---|---|---|
+| 1 | Validação local (what-if dev) | `az deployment group what-if` | ~2 min |
+| 2 | Deploy `dev` | `az deployment group create` | ~30-45 min (APIM dominante) |
+| 3 | Deploy `staging` | `az deployment group create` | ~30-45 min (APIM dominante) |
+| 4 | Deploy `prod` | `az deployment group create` | ~30-45 min (APIM dominante) |
 
-> **Por que 3 workflows e não 1?** Separação de responsabilidades: CI roda em todo PR (rápido, barato, dá feedback), CD Staging roda automático em main (ambiente intermediário pra eval), CD Prod só roda manual com gate humano (custo + risco). Pattern canônico de pipeline production-grade.
+> **Estratégia "deploy 3 envs no MESMO RG":** os 3 deploys rodam no MESMO `rg-lab-avancado`. O parâmetro `envName` (dev/staging/prod) diferencia o **nome dos recursos** (ex.: `apim-helpsphere-dev` vs `apim-helpsphere-staging`), não o RG. Isso reduz custo (1 RG limpo) e simplifica cleanup (1 `az group delete`). Em prod real você usaria 3 RGs separados — para o lab, isolar por nome é suficiente.
+
+> **Alternativa pedagógica — deploya só 1 env:** se você quer **minimizar custo**, pode deployar APENAS `dev` (Passo 5.2) e pular staging/prod. APIM Developer cobra ~R$ 8/dia por instância — 3 instâncias = R$ 24/dia. Recomendação: deploya `dev`, valida o pattern end-to-end, faz cleanup, e só roda staging/prod se quiser ver o `envName` diferenciando recursos.
 
 ---
 
-## Passo 5.1 — Criar workflow `ci.yml`
+## Passo 5.1 — Validar Bicep localmente com `what-if` (read-only, gratuito)
 
-**No Portal Azure:** este Passo é executado no **GitHub Actions UI** (não no Portal Azure). Workflows são arquivos YAML versionados no repo.
+`what-if` simula o deployment **sem aplicar** mudanças. Lista resources que serão criados/modificados/deletados. Sempre rode `what-if` antes do deploy real — pega erros de Bicep, parâmetros inválidos, e violações de policy (Capítulo 08) ANTES de cobrar APIM provisionando.
 
-**No GitHub Actions UI:**
+**No terminal local (Windows PowerShell 7):**
 
-1. Abra o navegador em `https://github.com/<seu-username>/helpsphere-ia/actions`
-2. Se for primeira vez no repo, GitHub mostra catálogo de starter workflows. Clique no link azul **"set up a workflow yourself"** (canto superior direito do título "Get started with GitHub Actions")
-3. GitHub abre editor web com `main.yml` por padrão. **Renomeie para `ci.yml`** no campo do nome do arquivo (topo do editor)
-4. Apague o conteúdo placeholder e cole o YAML abaixo:
+```powershell
+# 1. Navegue para a raiz do clone local de helpsphere-ia (ou apex-helpsphere-prod-lab)
+Set-Location <caminho-para-o-clone>
 
-```yaml
-# .github/workflows/ci.yml
-name: CI
+# 2. Confirme que está logado na sub correta
+az account show --query "{name:name, id:id}" -o table
 
-on:
-  pull_request:
-    branches: [main]
-  push:
-    branches: [main]
+# 3. Confirme que o RG existe
+az group show --name rg-lab-avancado --query "{name:name, location:location, state:properties.provisioningState}" -o table
 
-permissions:
-  id-token: write   # OBRIGATÓRIO para OIDC azure/login
-  contents: read
-
-jobs:
-  lint-bicep:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Bicep lint
-        run: |
-          az bicep build --file infra/main.bicep
-          az bicep build --file infra/modules/apim.bicep
-          az bicep build --file infra/modules/content-safety.bicep
-          az bicep build --file infra/modules/app-insights.bicep
-          az bicep build --file infra/modules/policy.bicep
-
-  lint-python:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - run: pip install ruff pytest
-      - run: ruff check src/ eval/
-
-  bicep-what-if:
-    runs-on: ubuntu-latest
-    needs: lint-bicep
-    if: github.event_name == 'pull_request'
-    steps:
-      - uses: actions/checkout@v4
-      - uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-      - name: Bicep what-if
-        run: |
-          az deployment group what-if \
-            --resource-group rg-lab-avancado \
-            --template-file infra/main.bicep \
-            --parameters infra/envs/staging.parameters.json
+# 4. Rode what-if para o env dev
+az deployment group what-if `
+  --resource-group rg-lab-avancado `
+  --template-file infra/main.bicep `
+  --parameters '@infra/envs/dev.parameters.json'
 ```
 
-5. Canto superior direito → **Commit changes...** → escolha **"Commit directly to the `main` branch"** → **Commit changes**
-6. GitHub redireciona para `https://github.com/<seu-username>/helpsphere-ia/actions` — você verá o workflow **CI** listado e (como o commit foi `push` em `main`) ele dispara automaticamente
+**Output esperado:** lista de "Resource changes" com símbolos `+ Create` para APIM, Content Safety, App Insights, Log Analytics, Policy Assignments. Nenhum `- Delete` (RG vazio antes do primeiro deploy) e nenhum `! Error`.
 
-<!-- screenshot: cap05-passo5.1-github-actions-new-workflow-ci.png -->
+<!-- screenshot: cap05-passo5.1-what-if-dev-output.png -->
 
-> **Alternativa via VS Code + git push (recomendado se você prefere editor local):**
->
-> ```powershell
-> # Na raiz do clone local de helpsphere-ia
-> New-Item -ItemType Directory -Path .github/workflows -Force | Out-Null
-> # Cole o YAML acima em .github/workflows/ci.yml usando seu editor preferido
-> git add .github/workflows/ci.yml
-> git commit -m "feat: GitHub Actions CI workflow"
-> git push origin main
-> ```
->
-> **Linux/Mac/WSL:** troque `New-Item -ItemType Directory -Path X -Force | Out-Null` por `mkdir -p X`.
+> **Alternativa Linux/Mac/WSL (bash):** troque `` ` `` (backtick) por `\` no fim das linhas e `Set-Location` por `cd`.
 
-> **Custo:** GitHub Actions é gratuito em repos públicos · em repos privados, conta para 2.000 minutos/mês free tier · provisão Azure aqui é **zero** (apenas `bicep build` + `what-if` que são read-only)
+> **Custo:** R$ 0 — `what-if` é read-only no Resource Manager.
 
-> **Nota pedagógica — por que 3 jobs separados e não 1 monolítico?** Jobs paralelos rodam em runners independentes → feedback ~3x mais rápido. Se `lint-python` falhar, você não precisa esperar `lint-bicep` terminar pra ver o erro. O `needs: lint-bicep` em `bicep-what-if` é a única dependência (porque what-if precisa do template compilado).
-
-> **Nota OIDC vs client secret:** repare que **NÃO há `creds: ${{ secrets.AZURE_CREDENTIALS }}`** em `azure/login@v2`. Em vez disso, `client-id` + `tenant-id` + `subscription-id` apontam para a federated credential criada no Capítulo 03. GitHub apresenta JWT, Entra valida, ninguém troca segredo. Production-grade.
+> **Nota pedagógica — por que `what-if` e não `validate`?** `az deployment group validate` checa sintaxe + parâmetros. `what-if` faz o mesmo + **simula o resultado final no estado atual do RG** (compara o template com o que já existe). Pega erros que `validate` não pega: nome duplicado, conflict com policy denying location, recurso já existente com sku diferente. Sempre prefira `what-if`.
 
 ---
 
-## Passo 5.2 — Criar workflow `cd-staging.yml`
+## Passo 5.2 — Deployar env `dev` (primeiro deploy real)
 
-**No GitHub Actions UI:**
-
-1. Abra `https://github.com/<seu-username>/helpsphere-ia/actions` → botão **"New workflow"** (canto superior direito)
-2. Topo da página → link **"set up a workflow yourself"**
-3. Renomeie o arquivo para **`cd-staging.yml`** no campo do nome do arquivo
-4. Cole o YAML abaixo:
-
-```yaml
-# .github/workflows/cd-staging.yml
-name: CD Staging
-
-on:
-  push:
-    branches: [main]
-
-permissions:
-  id-token: write
-  contents: read
-
-jobs:
-  deploy-staging:
-    runs-on: ubuntu-latest
-    environment: staging
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
-      - name: Deploy infra (Bicep)
-        run: |
-          az deployment group create \
-            --resource-group rg-lab-avancado \
-            --template-file infra/main.bicep \
-            --parameters infra/envs/staging.parameters.json \
-            --name "staging-${{ github.run_number }}"
-
-      - name: Health check
-        run: |
-          APIM_URL=$(az apim show -n apim-helpsphere-staging -g rg-lab-avancado --query gatewayUrl -o tsv)
-          echo "APIM URL: $APIM_URL"
-          curl -f -s --max-time 30 "$APIM_URL/status-0123456789abcdef" \
-            || echo "(APIM health endpoint pode não existir ainda — OK em primeiro deploy)"
-
-  eval-offline:
-    runs-on: ubuntu-latest
-    needs: deploy-staging
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - run: pip install -r eval/requirements.txt
-
-      - name: Run eval offline
-        env:
-          AOAI_API_KEY: ${{ secrets.AOAI_API_KEY }}
-          AOAI_ENDPOINT: ${{ vars.AOAI_ENDPOINT }}
-          AGENT_FUNCTION_URL: ${{ vars.AGENT_FUNCTION_URL_STAGING }}
-        run: |
-          python eval/run_eval.py --threshold-regression 0.05
-
-      - name: Upload eval results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: eval-results-staging
-          path: eval/results.json
+```powershell
+az deployment group create `
+  --name "deploy-dev-$(Get-Date -Format 'yyyyMMddHHmmss')" `
+  --resource-group rg-lab-avancado `
+  --template-file infra/main.bicep `
+  --parameters '@infra/envs/dev.parameters.json'
 ```
 
-5. **Commit changes...** → branch `main` → **Commit changes**
+**Tempo:** ~30-45 min (APIM Developer SKU é o gargalo — Content Safety, App Insights e Policy ficam prontos em ~1-2 min).
 
-<!-- screenshot: cap05-passo5.2-cd-staging-yml-editor.png -->
+**Output durante o deploy:** terminal mostra `Running...` com spinner. Você pode **abrir outro terminal** e seguir Capítulos 06+ em paralelo enquanto APIM provisiona.
 
-> **Alternativa via VS Code + git push:**
+**Output ao final (success):** JSON com `properties.outputs.apimGatewayUrl.value` = URL do APIM Gateway provisionado, `apimName`, `contentSafetyEndpoint`, etc.
+
+<!-- screenshot: cap05-passo5.2-deploy-dev-completed.png -->
+
+> **Alternativa Linux/Mac/WSL (bash):**
 >
-> ```powershell
-> # Na raiz do clone local
-> # Cole o YAML acima em .github/workflows/cd-staging.yml
-> git add .github/workflows/cd-staging.yml
-> git commit -m "feat: GitHub Actions CD Staging workflow"
-> git push origin main
+> ```bash
+> az deployment group create \
+>   --name "deploy-dev-$(date +%Y%m%d%H%M%S)" \
+>   --resource-group rg-lab-avancado \
+>   --template-file infra/main.bicep \
+>   --parameters @infra/envs/dev.parameters.json
 > ```
->
-> **Linux/Mac/WSL:** comandos `git` são idênticos; nenhuma adaptação necessária aqui.
 
-> **Custo:** zero overhead GitHub Actions · custo Azure depende do que o Bicep deploya (APIM Developer = R$ 250/mês se ficar ligado — provisione e delete no mesmo dia, ver Capítulo 10)
+> **Custo:** APIM Developer começa a cobrar prorated por hora a partir do `provisioningState=Succeeded` (~R$ 8/dia ligado). Content Safety F0 = R$ 0. App Insights = R$ 0-15/mês (volume baixo lab). **Se você esquecer ligado:** ~R$ 250/mês recorrente em APIM.
 
-> **Nota pedagógica — `environment: staging`:** a chave `environment: staging` no job vincula esse run ao GitHub Environment chamado `staging` (criamos no Passo 5.4). Permite isolar variables (`AOAI_ENDPOINT`, `AGENT_FUNCTION_URL_STAGING`) por env e — em produção real — adicionar approval gates por env.
+> **Nota pedagógica — `--name` único por deploy:** o nome do deployment é como você identifica esse run específico em `az deployment group list -g rg-lab-avancado`. Usar timestamp (`$(Get-Date -Format 'yyyyMMddHHmmss')`) garante uniqueness e ordenação cronológica natural. Se você deployar 2x com mesmo nome, o segundo **substitui** o registro do primeiro (mas os recursos já criados continuam — Azure faz `update`, não `delete + recreate`).
 
-> **Nota pedagógica — `needs: deploy-staging`:** o job `eval-offline` só roda **depois** que `deploy-staging` termina com sucesso. Se deploy falha, eval nem dispara → economia de tokens AOAI + clareza de causa raiz.
+> **Atenção timeout PS7:** terminal PowerShell pode "parecer travado" durante os 30+ min. **NÃO** dê Ctrl+C — você cancela o deployment Azure-side. Se precisar fechar o terminal, use `Get-Process powershell | Stop-Process` em outro terminal, mas o deployment **continua no Azure**. Verifique com `az deployment group list -g rg-lab-avancado --query "[?provisioningState=='Running'].name" -o tsv`.
 
 ---
 
-## Passo 5.3 — Criar workflow `cd-prod.yml` (manual approval gate)
+## Passo 5.3 — Validar resources criados em `dev`
 
-**No GitHub Actions UI:**
+Após o deploy do Passo 5.2 retornar `Succeeded`, valide que os 5 grupos de recursos estão em pé:
 
-1. `https://github.com/<seu-username>/helpsphere-ia/actions` → **"New workflow"** → **"set up a workflow yourself"**
-2. Renomeie o arquivo para **`cd-prod.yml`**
-3. Cole o YAML abaixo:
+```powershell
+# 1. Listar TODOS os recursos no RG
+az resource list `
+  --resource-group rg-lab-avancado `
+  --query "[].{name:name, type:type, location:location}" `
+  -o table
 
-```yaml
-# .github/workflows/cd-prod.yml
-name: CD Prod (Manual)
+# 2. APIM provisionado e em Succeeded
+az apim list `
+  --resource-group rg-lab-avancado `
+  --query "[].{name:name, sku:sku.name, state:provisioningState}" `
+  -o table
+# Esperado: name=apim-helpsphere-<token>, sku=Developer, state=Succeeded
 
-on:
-  workflow_dispatch:
-    inputs:
-      confirm:
-        description: 'Type "deploy-prod" to confirm'
-        required: true
-        type: string
+# 3. Content Safety endpoint disponível
+az cognitiveservices account list `
+  --resource-group rg-lab-avancado `
+  --query "[?kind=='ContentSafety'].{name:name, sku:sku.name, endpoint:properties.endpoint}" `
+  -o table
 
-permissions:
-  id-token: write
-  contents: read
+# 4. App Insights workspace-based
+az monitor app-insights component show `
+  --resource-group rg-lab-avancado `
+  --app "ai-helpsphere-dev" `
+  --query "{name:name, kind:kind, workspaceId:workspaceResourceId}" `
+  -o jsonc 2>$null
 
-jobs:
-  validate:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Validate confirmation
-        if: github.event.inputs.confirm != 'deploy-prod'
-        run: |
-          echo "::error::Confirmation incorrect — workflow requires input='deploy-prod'"
-          exit 1
-
-  deploy-prod:
-    runs-on: ubuntu-latest
-    needs: validate
-    environment:
-      name: production
-      url: ${{ steps.deploy.outputs.apimUrl }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
-      - id: deploy
-        name: Deploy infra (Bicep)
-        run: |
-          OUTPUT=$(az deployment group create \
-            --resource-group rg-lab-avancado \
-            --template-file infra/main.bicep \
-            --parameters infra/envs/prod.parameters.json \
-            --name "prod-${{ github.run_number }}" \
-            --query properties.outputs.apimGatewayUrl.value -o tsv)
-          echo "apimUrl=$OUTPUT" >> $GITHUB_OUTPUT
-
-      - name: Smoke test prod
-        run: |
-          curl -f -s --max-time 30 "${{ steps.deploy.outputs.apimUrl }}/status-0123456789abcdef" \
-            || (echo "::error::Smoke test failed — initiating rollback consideration" && exit 1)
-
-  rollback:
-    runs-on: ubuntu-latest
-    needs: deploy-prod
-    if: failure()
-    steps:
-      - uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-      - name: Rollback (revert to previous deployment)
-        run: |
-          PREV=$(az deployment group list -g rg-lab-avancado \
-            --query "[?starts_with(name, 'prod-')] | [1].name" -o tsv)
-          echo "Reverting to: $PREV"
-          # Em produção real isso seria revert efetivo via slot swap, ARM template
-          # anterior, ou rollback de deployment. Aqui é placeholder pedagógico.
+# 5. 3 Policy Assignments scoped no RG
+$SubId = az account show --query id -o tsv
+az policy assignment list `
+  --scope "/subscriptions/$SubId/resourceGroups/rg-lab-avancado" `
+  --query "[].{name:name, displayName:displayName, enforcementMode:enforcementMode}" `
+  -o table
+# Esperado: 3 rows (allowed-locations + require-cost-center + cosmos-deny-public)
 ```
 
-4. **Commit changes...** → branch `main` → **Commit changes**
+> **Alternativa Linux/Mac/WSL (bash):** troque `$Var =` por `VAR=$(...)`, `` ` `` por `\`, e `2>$null` por `2>/dev/null`.
 
-<!-- screenshot: cap05-passo5.3-cd-prod-yml-editor.png -->
+> **Custo:** R$ 0 — leituras read-only.
 
-> **3 mecanismos de proteção empilhados** neste workflow:
->
-> 1. **`workflow_dispatch` only** — sem trigger automático em push/PR, só roda se humano clicar "Run workflow"
-> 2. **`input: confirm` obrigatório** — validador rejeita se texto não for exatamente `deploy-prod` (case-sensitive)
-> 3. **`environment: production`** — vincula a Environment com **required reviewer** (Passo 5.4) → bloqueia deploy até alguém aprovar via UI
->
-> Pattern: **"3 obstáculos contra deploy acidental"** — você teria que (1) abrir manualmente, (2) digitar string específica, (3) aprovar como reviewer. Provavelmente refletiu antes de cada passo.
-
-> **Custo:** zero overhead pipeline · custo Azure prod depende do Bicep — em prod real, APIM + Content Safety + App Insights podem chegar em R$ 600+/mês ligado · neste lab, provisione e delete no mesmo dia (ver Capítulo 10)
+> **Nota pedagógica — por que validar imediatamente após deploy?** APIM pode retornar `Succeeded` no Resource Manager mas levar mais 5-10 min até o Gateway URL responder HTTP 200/404 (warm-up do cluster). Validar `provisioningState` confirma que o deploy não falhou silenciosamente. Smoke test real do Gateway vem no Capítulo 06.
 
 ---
 
-## Passo 5.4 — Configurar GitHub Environments (`staging` + `production`)
+## Passo 5.4 — Deployar env `staging` (mesmo padrão, nome de recurso diferente)
 
-GitHub Environments isolam variáveis e protegem deploys (required reviewers, wait timers, deployment branch restrictions). O workflow `cd-prod.yml` referencia `environment: production` — sem o environment criado, **deploy bloqueia com erro `environment 'production' not found`**.
+Mesmo RG, parâmetro `envName=staging` diferencia os nomes dos recursos.
 
-**No GitHub (Repository → Settings → Environments):**
+```powershell
+# 1. what-if antes (sempre)
+az deployment group what-if `
+  --resource-group rg-lab-avancado `
+  --template-file infra/main.bicep `
+  --parameters '@infra/envs/staging.parameters.json'
 
-1. Acesse `https://github.com/<seu-username>/helpsphere-ia/settings/environments`
-2. **New environment** → name `staging` → **Configure environment**
-3. Em `staging`, deixe tudo default (sem protection rules — staging é território de experimentação)
+# 2. Deploy real
+az deployment group create `
+  --name "deploy-staging-$(Get-Date -Format 'yyyyMMddHHmmss')" `
+  --resource-group rg-lab-avancado `
+  --template-file infra/main.bicep `
+  --parameters '@infra/envs/staging.parameters.json'
+```
 
-<!-- screenshot: cap05-passo5.4-environment-staging.png -->
+**Tempo:** ~30-45 min novamente (APIM `apim-helpsphere-staging-<token>` é um recurso NOVO, não compartilha com dev).
 
-4. Volte para `https://github.com/<seu-username>/helpsphere-ia/settings/environments` → **New environment** → name `production` → **Configure environment**
-5. Em `production`, configure protection rules:
-   - ☑ **Required reviewers** → adicione seu próprio user (em prod real, seria CTO ou líder técnico)
-   - **Wait timer:** `0` minutos (ou `5` minutos se quiser pedagogicamente forçar reflexão antes do deploy)
-   - **Deployment branches and tags** → `Selected branches and tags` → adicione rule `main` (somente)
-6. **Save protection rules**
+<!-- screenshot: cap05-passo5.4-deploy-staging-output.png -->
 
-<!-- screenshot: cap05-passo5.4-environment-production-protections.png -->
+> **Custo:** +R$ 8/dia adicional ligado (2 APIM Developer SKU agora = R$ 16/dia se dev e staging coexistirem).
 
-> **Por que `Selected branches and tags = main`?** Bloqueia que alguém crie branch experimental e dispare `cd-prod.yml` apontando pra ela. Em prod real você restringe a `main` + tags `v*` (releases assinadas).
-
-> **Nota pedagógica — você como reviewer de você mesmo:** num lab solo, isso é só formalismo. Mas o **pattern** importa: production-grade exige ≥1 par de olhos diferente do autor. Em squads reais, `Required reviewers` aponta para um time GitHub (`@org/sre`) e qualquer membro pode aprovar.
-
----
-
-## Passo 5.5 — Configurar Environment Variables (não-sensíveis)
-
-**No GitHub (Settings → Environments → staging):**
-
-1. Settings → Environments → clique em `staging`
-2. Seção **Environment variables** → **Add variable** — adicione 2 variables:
-   - **Name:** `AOAI_ENDPOINT` · **Value:** `https://aifproj-helpsphere-rag.openai.azure.com/` (do Lab Inter; ou seu endpoint de teste se rodando standalone)
-   - **Name:** `AGENT_FUNCTION_URL_STAGING` · **Value:** `https://func-helpsphere-agent-staging.azurewebsites.net` (placeholder por enquanto — você atualiza quando a Function existir)
-
-<!-- screenshot: cap05-passo5.5-environment-variables-staging.png -->
-
-3. Volte → clique em `production`
-4. **Add variable:**
-   - **Name:** `AOAI_ENDPOINT` · **Value:** mesmo endpoint do staging
-   - **Name:** `AGENT_FUNCTION_URL_PROD` · **Value:** `https://func-helpsphere-agent-prod.azurewebsites.net` (placeholder)
-
-> **Diferença canônica entre Variables e Secrets:**
->
-> | | Variables | Secrets |
-> |---|---|---|
-> | Visível em logs | ✅ Sim | ❌ Não (mascarado como `***`) |
-> | Use para | URLs, IDs, configs não-sensíveis | API keys, tokens, passwords, certs |
-> | Acesso no YAML | `${{ vars.NAME }}` | `${{ secrets.NAME }}` |
->
-> `AOAI_API_KEY` (Capítulo 03) é **secret**. URLs são **variables**. Erros comuns: usar variable pra key e expor em log público.
+> **Decisão pedagógica — pular staging?** Se objetivo é minimizar custo, pule Passo 5.4 e Passo 5.5. O pattern Bicep + `--parameters` é o mesmo — alterar 1 parâmetro = ambiente novo. Você já validou em dev (Passo 5.2). **Cleanup em 5.4/5.5 pulados:** a próxima sessão de gravação pode focar em 1 env só.
 
 ---
 
-## Passo 5.6 — Disparar primeiro deploy (CD Staging automático)
+## Passo 5.5 — Deployar env `prod` (mesmo padrão)
 
-Quando você commitou `cd-staging.yml` no Passo 5.2, o workflow já **disparou automaticamente** porque tem trigger `on: push: branches: [main]`. Vamos verificar.
+```powershell
+# 1. what-if antes
+az deployment group what-if `
+  --resource-group rg-lab-avancado `
+  --template-file infra/main.bicep `
+  --parameters '@infra/envs/prod.parameters.json'
 
-**No GitHub Actions UI:**
+# 2. Deploy real
+az deployment group create `
+  --name "deploy-prod-$(Get-Date -Format 'yyyyMMddHHmmss')" `
+  --resource-group rg-lab-avancado `
+  --template-file infra/main.bicep `
+  --parameters '@infra/envs/prod.parameters.json'
+```
 
-1. Acesse `https://github.com/<seu-username>/helpsphere-ia/actions`
-2. Aba **All workflows** → selecione **CD Staging**
-3. Clique no run mais recente para ver detalhes
-4. Acompanhe os 2 jobs em sequência:
-   - `deploy-staging` (~30-45 min — APIM Developer provisiona lento, paciência) → ✅ Success
-   - `eval-offline` (~2-3 min) → roda eval Python contra staging → ✅ Success
+<!-- screenshot: cap05-passo5.5-deploy-prod-output.png -->
 
-<!-- screenshot: cap05-passo5.6-cd-staging-running.png -->
+> **Custo:** +R$ 8/dia adicional se prod coexistir com dev+staging (3 APIM Developer ligados = R$ 24/dia = R$ 720/mês se esquecido). **Cleanup obrigatório no Capítulo 10.**
 
-> **Atenção timeout:** APIM Developer SKU provisiona em ~30-45 min. GitHub Actions tem default `timeout-minutes: 360` (6h) por job, então não dá timeout, mas se a sessão de gravação está apertada, **siga Capítulos 06+ em paralelo** enquanto o deploy roda.
+> **Nota pedagógica — sem approval gate em CLI manual:** em CI/CD GitHub Actions (versão `v0.2.0` deste capítulo), `cd-prod.yml` usava `environment: production` com `required reviewers` — bloqueio humano antes do deploy prod. Em CLI manual, o **próprio aluno** é o gate. Recomenda-se: (a) só rode `prod` depois de validar `dev` E `staging`, (b) leia `what-if` linha-a-linha antes de digitar `Enter`, (c) use `--confirm-with-what-if` flag se quiser dupla confirmação.
 
-> **Se o run falhar com `AuthorizationFailed`:** confirme que a Federated Credential do Capítulo 03 está correta — `subject` deve ser **exatamente** `repo:<seu-username>/helpsphere-ia:ref:refs/heads/main` (verifique typos no username GitHub).
+```powershell
+# Variante com dupla confirmação (Azure CLI imprime what-if + pede confirmação interativa)
+az deployment group create `
+  --name "deploy-prod-$(Get-Date -Format 'yyyyMMddHHmmss')" `
+  --resource-group rg-lab-avancado `
+  --template-file infra/main.bicep `
+  --parameters '@infra/envs/prod.parameters.json' `
+  --confirm-with-what-if
+```
 
 ---
 
-## Passo 5.7 — Disparar CD Prod manualmente (workflow_dispatch + approval)
+## Passo 5.6 — Listar deployments e verificar histórico
 
-`cd-prod.yml` usa `on: workflow_dispatch` — só roda manualmente via UI ou API.
+Toda execução de `az deployment group create` registra o deployment no Resource Manager. Pode consultar histórico:
 
-**No GitHub Actions UI:**
+```powershell
+# 1. Listar TODOS os deployments do RG
+az deployment group list `
+  --resource-group rg-lab-avancado `
+  --query "[].{name:name, state:properties.provisioningState, timestamp:properties.timestamp}" `
+  -o table
 
-1. `https://github.com/<seu-username>/helpsphere-ia/actions` → aba lateral **CD Prod (Manual)**
-2. Canto direito → botão **Run workflow** (com setinha pra baixo)
-3. Preencher:
-   - **Use workflow from:** `Branch: main`
-   - **Type "deploy-prod" to confirm:** `deploy-prod` (exatamente — case-sensitive)
-4. **Run workflow**
+# 2. Ver output completo do último deployment dev (variáveis exportadas pelos modules)
+$LastDevDeploy = az deployment group list `
+  --resource-group rg-lab-avancado `
+  --query "[?starts_with(name, 'deploy-dev-')] | [0].name" -o tsv
 
-<!-- screenshot: cap05-passo5.7-run-workflow-cd-prod.png -->
+az deployment group show `
+  --resource-group rg-lab-avancado `
+  --name $LastDevDeploy `
+  --query "properties.outputs" `
+  -o jsonc
 
-5. O run inicia → job `validate` passa → job `deploy-prod` **PARA** aguardando approval (porque `production` environment tem required reviewer configurado no Passo 5.4)
-6. No topo do run, banner amarelo **"Deployment review"** → clique **Review deployments** → marque ☑ `production` → **Approve and deploy**
-7. Deploy continua, smoke test executa, ✅ Success
+# 3. Ver erros de deployments falhados (se houver)
+az deployment group list `
+  --resource-group rg-lab-avancado `
+  --query "[?properties.provisioningState=='Failed'].{name:name, error:properties.error}" `
+  -o jsonc
+```
 
-> **Alternativa via gh CLI (trigger workflow):**
->
-> ```powershell
-> # Disparar workflow manualmente
-> gh workflow run cd-prod.yml --ref main -f confirm=deploy-prod
->
-> # Listar runs e descobrir ID do run pendente
-> gh run list --workflow cd-prod.yml --limit 1
->
-> # gh CLI não tem comando nativo pra approve — use UI ou API REST:
-> # POST /repos/{owner}/{repo}/actions/runs/{run_id}/pending_deployments
-> gh api -X POST repos/<owner>/<repo>/actions/runs/<run_id>/pending_deployments `
->   -f environment_ids='[<env_id>]' `
->   -f state=approved `
->   -f comment='Approved via CLI'
-> ```
->
-> **Linux/Mac/WSL:** troque `` ` `` (backtick) por `\` para continuação de linha.
+> **Alternativa Linux/Mac/WSL (bash):** troque `$LastDevDeploy =` por `LAST_DEV_DEPLOY=$(...)`, `` ` `` por `\`, e remova as aspas simples do `@infra/envs/...json`.
+
+> **Custo:** R$ 0 — leituras read-only.
+
+> **Nota pedagógica — deployment history vs resource state:** o deployment registra **o que você TENTOU fazer**, não **o estado atual do resource**. Se você deletou um APIM no Portal e re-rodou Bicep, o deployment registra "Succeeded" mas você não vê o delete intermediário. Use `az deployment group show` para auditar intenções e `az resource list` para auditar estado.
 
 ---
 
 ## Validação end-to-end
 
 ```powershell
-# 1. Trigger CI manual via gh CLI
-gh workflow run ci.yml --ref main
+# 1. RG existe com 4 tags
+az group show --name rg-lab-avancado --query "{name:name, tags:tags}" -o jsonc
 
-# 2. Watch progresso
-gh run watch
+# 2. Pelo menos 1 APIM em Succeeded
+$Count = az apim list -g rg-lab-avancado --query "length([?provisioningState=='Succeeded'])" -o tsv
+Write-Host "APIM Succeeded: $Count (esperado: 1, 2 ou 3 conforme envs deployados)"
 
-# 3. Após PR merged em main, cd-staging.yml dispara automático
-gh run list --workflow cd-staging.yml --limit 1
+# 3. Deployments registrados (>=1)
+az deployment group list -g rg-lab-avancado --query "length([?properties.provisioningState=='Succeeded'])" -o tsv
+# Esperado: numero >= 1
 
-# 4. Para prod, manual via CLI
-gh workflow run cd-prod.yml --ref main -f confirm=deploy-prod
-
-# 5. Verificar APIM provisionado
-az apim list -g rg-lab-avancado --query "[].{name:name, state:provisioningState, sku:sku.name}" -o table
-# Esperado: name=apim-helpsphere-staging, state=Succeeded, sku=Developer
+# 4. Policy Assignments cravadas
+$SubId = az account show --query id -o tsv
+az policy assignment list --scope "/subscriptions/$SubId/resourceGroups/rg-lab-avancado" --query "length(@)" -o tsv
+# Esperado: 3
 ```
 
-> **Linux/Mac/WSL:** comandos `gh` e `az` aceitam a mesma sintaxe — não há adaptação necessária neste bloco.
+> **Linux/Mac/WSL:** troque `$Count =` / `$SubId =` por `COUNT=$(...)` / `SUB_ID=$(...)`, `` ` `` por `\`, e `Write-Host` por `echo`.
 
 ---
 
 ## Checklist final
 
 ```text
-[ ] CI workflow passou em PR (lint-bicep + lint-python + bicep-what-if)
-[ ] CD Staging deployou sem erro
-[ ] CD Staging eval-offline passou (sem regressão > 5%)
-[ ] CD Prod requer approval (testado clicando Approve)
-[ ] APIM provisionado em rg-lab-avancado (state=Succeeded após ~30-45min)
-[ ] Smoke test reportou HTTP code esperado (200/202/404 aceitáveis em APIM em init)
-[ ] GitHub Environments staging + production criados
-[ ] production tem required reviewer configurado
-[ ] Federated credentials funcionaram (sem client secret no repo)
+[ ] what-if rodou sem erros para dev (Passo 5.1)
+[ ] Deploy dev concluiu com Succeeded (Passo 5.2)
+[ ] az resource list mostra APIM + Content Safety + App Insights + Log Analytics + Policy (Passo 5.3)
+[ ] (Opcional) Deploy staging concluiu — Passo 5.4
+[ ] (Opcional) Deploy prod concluiu — Passo 5.5
+[ ] az deployment group list mostra historico com Succeeded (Passo 5.6)
+[ ] Nenhum deployment em estado Failed
+[ ] 3 Policy Assignments cravadas (allowed-locations + require-cost-center + cosmos-deny-public)
 ```
 
 ---
 
 ## Surpresas pedagógicas (capturadas em smoke runs)
 
-- ⚠️ **APIM Developer provisiona em ~30-45 min** — não é erro, é o SKU. Se aparecer `Status: Activating` por mais de 1h, abra ticket Azure. Workaround: provisione e siga outros Capítulos em paralelo.
-- ⚠️ **`AuthorizationFailed` no primeiro CD Staging** — quase sempre é typo no username GitHub na federated credential `subject`. Confira `repo:<EXATO-username-case-sensitive>/helpsphere-ia:ref:refs/heads/main`.
-- ⚠️ **`Bicep what-if` em PR sem federated credential `pull_request`** — se você só criou a credential `main` (sem a `pull_request`), o job falha com `AADSTS70021: No matching federated identity record found`. Volte ao Capítulo 03 e crie a 2ª credential.
-- ⚠️ **`environment 'production' not found`** — você esqueceu de criar o GitHub Environment no Passo 5.4. Crie e re-run.
-- ⚠️ **Variable vs Secret confusão** — `AOAI_API_KEY` definido como variable em vez de secret vaza no log. Sempre que dúvida: dado sensível = secret, sempre.
+- ⚠️ **APIM Developer provisiona em ~30-45 min** — não é erro, é o SKU. Se aparecer `Status: Activating` por mais de 1h, abra ticket Azure. Workaround: provisione e siga outros Capítulos em paralelo (Cap 06 detalha policies do APIM que você cravará após `Succeeded`).
+- ⚠️ **`az deployment group create` retorna sucesso mas APIM Gateway URL não responde HTTP** — APIM pode levar +5-10 min após `Succeeded` para o cluster Gateway aceitar requests. Workaround: aguarde, depois `curl -I https://<gateway-url>/status-0123456789abcdef` retorna `404 NotFound` (esperado em init — você cria policies/APIs no Cap 06).
+- ⚠️ **`--parameters '@infra/envs/dev.parameters.json'` com aspas simples em PowerShell** — sem as aspas, PS interpreta `@` como splatting operator. Workaround: SEMPRE use aspas simples ao redor do path com `@` em PowerShell. Linux/Mac/WSL bash não precisa de aspas.
+- ⚠️ **Policy `allowed-locations` bloqueia o primeiro deploy se você cravou Policy ANTES da infra** — sequência errada: aplicar policy `allowed-locations=eastus2` num RG vazio, depois tentar deployar APIM em `eastus2`. Funciona. Mas se você mudar o `commonTags.environment` por engano sem `cost-center`, o policy `require-cost-center-tag` bloqueia. Workaround: o Bicep `policy.bicep` aplica policies **depois** dos recursos no MESMO deployment — Azure resolve dependências automaticamente. Se você split em 2 deployments separados, ordem importa.
+- ⚠️ **Deployment registra "Succeeded" mas Cost Analysis mostra R$ 0 nas primeiras 6-24h** — Cost Management tem latência. Workaround: aguarde 24h para ver custo do APIM aparecer. Não pânico nas primeiras horas.
+- ⚠️ **`az deployment group create` em sub com policy `allowed-locations` global retorna `RequestDisallowedByPolicy`** — algumas subs corporate têm policy assignment no scope `subscription` (não RG) que bloqueia regiões diferentes. Workaround: verifique `az policy assignment list --scope /subscriptions/<ID>` e ajuste seu `commonTags.location` (no Bicep) ou peça ao admin para ajustar policy.
 
 ---
 

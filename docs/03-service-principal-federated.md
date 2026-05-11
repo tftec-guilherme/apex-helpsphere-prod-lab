@@ -1,10 +1,26 @@
-# Capítulo 03 — Service Principal com Federated Credentials
+# Capítulo 03 — Service Principal com Federated Credentials (OPCIONAL)
 
-> **Objetivo:** criar o **App Registration** + **Service Principal** `sp-github-actions-helpsphere`, atribuir role **Contributor** scoped no `rg-lab-avancado`, configurar **3 federated credentials** (main branch + pull_request + environment:production) e cravar os 4 GitHub Secrets (`AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `AZURE_CLIENT_ID`, `AOAI_API_KEY`) — deixando o repo `helpsphere-ia` pronto para autenticar no Azure via OIDC sem nenhum client secret armazenado.
+> **⚠️ CAPÍTULO OPCIONAL — pode pular se objetivo é só Portal+CLI manual**
+>
+> Este Capítulo cobre Service Principal + Federated Credentials para autenticação OIDC do GitHub Actions no Azure. **Esta versão do lab (v0.3.0) é 100% Portal+CLI manual** — você roda `az deployment group create` direto no terminal com `az login` (seu usuário pessoal). O SP federado só é necessário se você quer estender o lab com CI/CD via GitHub Actions (capítulo futuro, fora do escopo desta versão).
+>
+> **Quando seguir este Capítulo:**
+> - Você quer aprender o pattern OIDC Federated SP como conhecimento adicional
+> - Você planeja estender o lab depois com `.github/workflows/` próprio
+> - Você precisa demonstrar o pattern em portfolio/entrevista
+>
+> **Quando pular:**
+> - Você quer terminar o Lab Avançado rapidamente (Portal+CLI manual basta)
+> - Sua sub tem ABAC (R6 disclaimer abaixo — bloqueio conhecido)
+> - Você nunca vai usar GitHub Actions neste lab
+>
+> **Pré-requisito real para Capítulo 04+:** apenas `az login` com role **Contributor** em `rg-lab-avancado`. Nada mais.
+
+> **Objetivo (se você optar por seguir):** criar o **App Registration** + **Service Principal** `sp-github-actions-helpsphere`, atribuir role **Contributor** scoped no `rg-lab-avancado`, configurar **3 federated credentials** (main branch + pull_request + environment:production) e cravar os 4 GitHub Secrets (`AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `AZURE_CLIENT_ID`, `AOAI_API_KEY`) — deixando o repo `helpsphere-ia` pronto para autenticar no Azure via OIDC sem nenhum client secret armazenado.
 >
 > **Tempo:** 35-50 min (dobra se cair em ABAC e tiver que pivotar de subscription — R6)
 >
-> **Status:** `v0.2.0-portal` ⚠️ EXPANDIDO (era `v0.1.0-init` semi-expandido) — derivado de `Lab_Avancado_IA_Producao_Guia_Portal.md` Parte 1 (Passos 1.3-1.5) + R6 disclaimer canônico
+> **Status:** `v0.3.0-optional` ⚠️ MARCADO COMO OPCIONAL — era `v0.2.0-portal` cravando como pré-requisito obrigatório. Esta versão (v0.3.0) reduz escopo: SP federado vira artefato pedagógico opcional, não pré-requisito de Cap 04+.
 
 ---
 

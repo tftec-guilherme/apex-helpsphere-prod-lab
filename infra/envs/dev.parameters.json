@@ -5,12 +5,6 @@
     "envName": {
       "value": "dev"
     },
-    "location": {
-      "value": "eastus2"
-    },
-    "rgName": {
-      "value": "rg-helpsphere-ia-prod-dev"
-    },
     "apimSku": {
       "value": "Developer"
     },

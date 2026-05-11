@@ -1,12 +1,14 @@
 # PARA O ALUNO — Lab Avançado D06
 
-Bem-vindo ao **Lab Avançado** da Disciplina 06. Este é o repo companion do tema `apex-helpsphere` em modo **production-grade canônico** — você vai construir CI/CD via GitHub Actions, Bicep production-ready e governança com Azure Policy + Cost Management em cima da fundação SaaS já validada nos blocos anteriores.
+Bem-vindo ao **Lab Avançado** da Disciplina 06. Este é o repo companion do tema `apex-helpsphere` em modo **production-grade canônico em STACK PARALELA à fundação SaaS** — mesmos padrões técnicos (APIM Developer, Content Safety, App Insights workspace-based, Azure Policy), mas recursos completamente isolados em `rg-lab-avancado` para fins pedagógicos. NÃO consome a SaaS (apex-helpsphere) — você aprende o pattern, não integra.
+
+Esta versão é **100% Portal+CLI manual**. CI/CD via GitHub Actions é capítulo futuro (fora do escopo). Você aplica Bicep com `az deployment group create` em terminal local — domina a IaC e a stack production-grade primeiro.
 
 > **Filosofia:** Production-grade significa **não simplificamos para "didático"**. Você vai ver APIM real, Content Safety real, custom metrics reais. É como uma empresa faria.
 
 ---
 
-## 8 Pré-requisitos (cravados)
+## 7 Pré-requisitos (cravados)
 
 ### 1. Subscription PAYG ativa
 Azure OpenAI **exige** modelo Pay-As-You-Go. **Free Trial NÃO funciona** para Foundry Agents/Embeddings. Se você está em Free Trial, converta antes de começar.
@@ -14,40 +16,33 @@ Azure OpenAI **exige** modelo Pay-As-You-Go. **Free Trial NÃO funciona** para F
 ### 2. Foundry Hub `aifhub-apex-prod` já provisionado
 Pré-requisito de Bloco 6 do recording. Se ainda não tem, volte ao Bloco 6 antes deste lab.
 
-### 3. Subscription sem ABAC condition
-**HIGH disclaimer R6:** CI/CD via GitHub Actions com Federated Service Principal **NÃO funciona** em subscriptions com ABAC condition (ex: Visual Studio Enterprise pessoal `live.com` vem com ABAC default que bloqueia role assignments via SP federado).
+### 3. (Opcional) GitHub repo
+Esta versão é Portal+CLI manual — você NÃO precisa de repo GitHub para rodar o lab. Os artefatos (Bicep, parameter files) existem em `infra/` e você os aplica direto com `az deployment group create` no terminal local. Fork opcional via `gh repo fork tftec-guilherme/apex-helpsphere-prod-lab --clone` se quiser manter histórico/portfolio.
 
-| Sub que funciona | Sub que NÃO funciona |
-|------------------|---------------------|
-| TFTEC subscription | Visual Studio Enterprise (live.com) com ABAC |
-| PAYG sem ABAC | Free Trial (sem ABAC mas sem PAYG) |
-| Subscription corporate | Subs com Conditional Access policy bloqueando SP |
+### 4. (Opcional) Service Principal com Federated Credentials
+Necessário SOMENTE se você quiser estender o lab com CI/CD via GitHub Actions (capítulo futuro). Para esta versão Portal+CLI, basta `az login` com seu usuário e role Contributor em `rg-lab-avancado`. Ver `docs/03-service-principal-federated.md` (marcado como OPCIONAL).
 
-### 4. GitHub repo (este, forked)
-Fork via `gh repo fork tftec-guilherme/apex-helpsphere-prod-lab --clone`.
-
-### 5. Service Principal com Federated Credentials
-Configurado via `az ad sp create-for-rbac --name "sp-helpsphere-prod-lab"` + Federated Credentials apontando para seu GitHub repo. Ver `docs/03-service-principal-federated.md`.
-
-### 6. Az CLI + Bicep CLI atualizados
-```bash
+### 5. Az CLI + Bicep CLI atualizados
+```powershell
 az --version  # >= 2.60
 az bicep version  # >= 0.30
 ```
+**Linux/Mac/WSL:** comandos `az` são idênticos.
 
-### 7. Python 3.11+ (opcional — só pra eval offline)
-```bash
+### 6. Python 3.11+ (opcional — só pra eval offline)
+```powershell
 python --version
 ```
 
-### 8. gh CLI autenticado
-```bash
+### 7. (Opcional) gh CLI autenticado
+```powershell
 gh auth status
 ```
+Só necessário se você quer fork via CLI (Pré-requisito 3).
 
 ---
 
-## 3 Disclaimers HIGH (leia ANTES de começar)
+## 2 Disclaimers HIGH (leia ANTES de começar)
 
 ### Disclaimer R4 — APIM Developer R$ 250/mês ligado
 
@@ -58,17 +53,6 @@ gh auth status
 - **Alternativa**: `param apimSku string = 'Consumption'` em `infra/envs/dev.parameters.json` — pay-per-call (mas algumas policies do Lab podem não funcionar; ver `docs/06`)
 
 **Comprometa-se com o cleanup ou use Consumption SKU.**
-
-### Disclaimer R6 — CI/CD requer subscription sem ABAC
-
-CI/CD fork-by-student via Federated SP **descontinuado em sub VSE pessoal** desde 2026-05-06 (descoberta arquitetural cravada na sessão maratona).
-
-Lab assume:
-- Sub TFTEC sem ABAC (cenário ideal — ambiente de aula real)
-- OU sub PAYG sem ABAC
-- OU sub corporate
-
-Se sua sub tem ABAC, **CI workflow falha** ao fazer role assignments. Você ainda consegue rodar `az deployment sub create` localmente, mas perde o valor pedagógico do CI/CD demo. **Recomendação:** consiga sub TFTEC ou PAYG sem ABAC para este lab.
 
 ### Disclaimer Free Trial — não suportado
 
@@ -83,8 +67,8 @@ Se você fez Bloco 2 em Free Trial, **converta para PAYG agora**.
 ## Filosofia "Bicep IS canonical"
 
 - `infra/main.bicep` é a **fonte de verdade**. Portal Azure é só pra visualizar e debugar.
-- Você **NÃO** edita recursos no Portal — edita Bicep, abre PR, CI valida, CD deploya.
-- Mudanças manuais no Portal são **drift** e o próximo `cd-staging` ou `cd-prod` vai sobrescrever.
+- Você **NÃO** edita recursos no Portal — edita Bicep, roda `what-if`, deploya com `az deployment group create`.
+- Mudanças manuais no Portal são **drift** e o próximo `az deployment group create` vai sobrescrever.
 - Se você quer testar algo no Portal, faça em outro RG fora deste lab.
 
 Esta é a disciplina de "Production-grade canônico". Aceite a regra ou volte ao Lab Intermediário (Portal-first).
