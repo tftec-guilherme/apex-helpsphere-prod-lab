@@ -4,20 +4,21 @@
 >
 > **Tempo:** 60-90 min (varia conforme familiaridade com Bicep)
 >
-> **Status:** `v0.2.0-portal` ⚠️ EXPANDIDO (era `v0.1.0-init` outline) — derivado de `Lab_Avancado_IA_Producao_Guia_Portal.md` Parte 2 (Passos 2.1-2.5)
+> **Status:** `v0.2.0-portal` ⚠️ EXPANDIDO (era `v0.1.0-init` outline)
 
 ---
 
 ## Pré-requisitos
 
-- ✅ Capítulo 03 concluído — Service Principal `sp-github-actions-helpsphere` criado com role **Contributor** scoped em `rg-lab-avancado` + Federated Credentials cravadas (`main`, `pull_request`)
-- ✅ Capítulo 02 concluído — RG `rg-lab-avancado` existe e tags aplicadas (`cost-center=apex-helpsphere-ia environment=lab application=helpsphere-ia`)
-- ✅ Repo `helpsphere-ia` clonado localmente (VS Code) — pasta `infra/` ainda vazia
+- ✅ RG `rg-lab-avancado` existe em East US 2 com 4 tags FinOps aplicadas (`cost-center=apex-helpsphere-ia environment=lab application=helpsphere-ia owner=<seu-email>`)
+- ✅ Repo local clonado (VS Code) — pasta `infra/` ainda vazia
 - ✅ VS Code com extensão **Bicep** instalada (autocomplete + lint inline + symbol references)
-- ✅ Azure CLI logado (`az login`) — usaremos `az bicep build` no Capítulo 04b
-- ✅ Subscription ID anotado (do Capítulo 03) — usado em outputs cross-RG
+- ✅ Azure CLI logado (`az login`) — `az bicep version` retorna `>=0.30`
+- ✅ PowerShell 7+ no Windows (ou bash em Linux/Mac/WSL) — comandos abaixo são PowerShell-first
+- ✅ Subscription ID anotado — `az account show --query id -o tsv` exibe o GUID
+- ⚠️ Service Principal Federated **NÃO é pré-requisito desta versão** — o módulo `policy.bicep` (Passo 2.5) declara role grants para um SP, mas o deploy real fica fora do escopo (CLI manual usa o usuário logado). Mantenha o template para fidelidade ao pattern production-grade, mesmo que você só rode `az bicep build` localmente.
 
-> **Atenção preview:** APIM **Developer SKU** vai ser declarado neste capítulo (R$ 250/mês ligado). O recurso **só provisiona quando o pipeline rodar** (Capítulo 05). Aqui você está só descrevendo o template — custo zero.
+> **Atenção preview:** APIM **Developer SKU** vai ser declarado neste capítulo (~R$ 8/dia ligado = ~R$ 240/mês). O recurso **só provisiona quando você rodar `az deployment group create`** (capítulo seguinte). Aqui você está só descrevendo o template — custo zero.
 
 ---
 
@@ -26,12 +27,12 @@
 | Arquivo | Scope | Responsabilidade | SKU/tier | Custo provisionado |
 |---|---|---|---|---|
 | `infra/main.bicep` | `resourceGroup` (default) | Orquestra 3 módulos: APIM, Content Safety, App Insights | — | — |
-| `infra/modules/apim.bicep` | `resourceGroup` | APIM + Logger + Diagnostic settings + Named Value secret | Developer | R$ 250/mês ligado |
+| `infra/modules/apim.bicep` | `resourceGroup` | APIM + Logger + Diagnostic settings + Named Value secret | Developer | ~R$ 8/dia ligado (~R$ 240/mês) |
 | `infra/modules/content-safety.bicep` | `resourceGroup` | Cognitive Services kind=ContentSafety | F0 (free) | R$ 0 (5K req/mês free) |
-| `infra/modules/app-insights.bicep` | `resourceGroup` | App Insights workspace-based (Log Analytics) | — | R$ 5-15/mês depende ingest |
+| `infra/modules/app-insights.bicep` | `resourceGroup` | App Insights workspace-based (Log Analytics) | — | R$ 0 nos primeiros 5GB/mês (free tier); ~R$ 5-15/mês acima |
 | `infra/modules/policy.bicep` | **`subscription`** | 3 Policy Definitions + Policy Assignments + role grants compensatórios | — | R$ 0 |
 
-> **Nota pedagógica — por que `policy.bicep` é `targetScope=subscription` e os outros são `resourceGroup`?** Policy Definitions e Assignments **só existem no escopo da subscription** no Azure ARM model. Misturá-los com recursos resource-group-scoped faz Bicep falhar com `InvalidTemplate: scope mismatch`. Pattern canônico: `main.bicep` = scope=resourceGroup chama 3 módulos resource-group-scoped; `policy.bicep` é deployado **separadamente** como bootstrap subscription-level (Capítulo 05 mostra a chamada `az deployment sub create`).
+> **Nota pedagógica — por que `policy.bicep` é `targetScope=subscription` e os outros são `resourceGroup`?** Policy Definitions e Assignments **só existem no escopo da subscription** no Azure ARM model. Misturá-los com recursos resource-group-scoped faz Bicep falhar com `InvalidTemplate: scope mismatch`. Pattern canônico: `main.bicep` = `scope=resourceGroup` chama 3 módulos resource-group-scoped; `policy.bicep` é deployado **separadamente** como bootstrap subscription-level via `az deployment sub create`.
 
 > **Nota pedagógica — Bicep IS canonical:** **tudo** que vai pra Azure passa por Bicep. Mudanças manuais no Portal = drift. Drift é detectado e sobrescrito no próximo `az deployment group create`. Filosofia: o template é a fonte da verdade, o Portal é só pra **visualizar** o que o Bicep declarou.
 
@@ -41,7 +42,7 @@
 
 **No VS Code (ou editor de sua preferência):**
 
-1. Na raiz do clone local de `helpsphere-ia`, crie a estrutura de pastas:
+1. Na raiz do clone local, crie a estrutura de pastas:
 
    ```powershell
    New-Item -ItemType Directory -Force -Path infra/modules, infra/envs | Out-Null
@@ -85,7 +86,7 @@ module appInsights 'modules/app-insights.bicep' = {
   params: {
     location: location
     name: 'ai-helpsphere-${env}'
-    workspaceId: '/subscriptions/${subscriptionId}/resourceGroups/rg-helpsphere-ia/providers/Microsoft.OperationalInsights/workspaces/log-helpsphere-ia'
+    workspaceId: '/subscriptions/${subscriptionId}/resourceGroups/rg-lab-avancado/providers/Microsoft.OperationalInsights/workspaces/log-helpsphere-lab'
     tags: tags
   }
 }
@@ -115,7 +116,7 @@ module contentSafety 'modules/content-safety.bicep' = {
 // no escopo da subscription). Por isso NÃO é instanciado aqui (este main.bicep tem
 // scope=resourceGroup). Deploy separado:
 //   az deployment sub create --location <region> --template-file infra/modules/policy.bicep ...
-// Veja Passo 2.5 para detalhes do template e Capítulo 05 para o pipeline que dispara.
+// Veja Passo 2.5 para detalhes do template.
 
 // =========================================================================
 // Outputs
@@ -130,7 +131,7 @@ output appInsightsConnectionString string = appInsights.outputs.connectionString
 > **Alternativa via Portal Azure:**
 > Não tem alternativa Portal — Bicep é code-first por design. O Portal Azure tem **Export Template** que gera ARM JSON, mas **não Bicep**. Workflow correto: VS Code + extensão Bicep + `az bicep build`.
 
-> **Custo:** zero — Bicep template é só código local. Custo só acontece quando `az deployment group create` provisiona recursos (Capítulo 05).
+> **Custo:** zero — Bicep template é só código local. Custo só acontece quando você rodar `az deployment group create` no capítulo seguinte.
 
 > **Nota pedagógica — por que `appInsights` declarado ANTES de `apim`?** Porque `apim.bicep` precisa do output `appInsights.outputs.instrumentationKey` como parameter (`appInsightsInstrumentationKey`). Bicep resolve dependências por **referências entre símbolos**, não por ordem de declaração no arquivo — mas escrever na ordem topológica deixa o template auto-documentado.
 
@@ -230,7 +231,9 @@ output principalId string = apim.identity.principalId
 > **Alternativa via Portal Azure:**
 > Não há — APIM **pode** ser criado pelo Portal manualmente, mas isso quebra o princípio "Bicep IS canonical". Se você criar pelo Portal e depois tentar deploy do Bicep, ARM **substitui** as configurações manuais (drift detection). Não misture.
 
-> **Custo:** APIM Developer = **R$ 250/mês ligado** (mesmo zero requests — APIM cobra pela alocação compute, não por chamada). Provisione e delete **no mesmo dia** durante o lab (Capítulo 10). Em prod real, Standard = R$ 1.500/mês, Premium = R$ 11.000+/mês.
+> **Custo:** APIM Developer = **~R$ 8/dia ligado** (~R$ 240/mês mesmo com zero requests — APIM cobra pela alocação compute, não por chamada). Provisione e delete **no mesmo dia** durante o lab via `az group delete -n rg-lab-avancado --yes`. Em prod real, Standard = ~R$ 1.500/mês, Premium = ~R$ 11.000+/mês.
+
+> **Surpresa pedagógica — `sku.name = 'Developer'` é o único tier não-prod viável para lab:** `Consumption` SKU (serverless) NÃO tem outbound IP estático nem custom domain, e não suporta `namedValues`/`loggers` ricos. `Basic`/`Standard`/`Premium` cobram 5x-50x mais. Developer é o ponto doce para validar pattern production-grade sem queimar R$ 1.500+ em uma semana de lab.
 
 > **Nota pedagógica — por que 3 recursos separados (`namedValue` + `logger` + `diagnostic`) e não inline?** Porque APIM Logger **referencia** o named value via `{{instrumentation-key}}` — se o named value não existe ainda, deploy falha. O `dependsOn` explícito é o que garante ordem em ARM. Sem `dependsOn`, ARM tenta criar paralelo → race condition. **Pattern canônico Microsoft** documentado em [APIM ARM templates](https://learn.microsoft.com/azure/templates/microsoft.apimanagement/service).
 
@@ -278,7 +281,9 @@ output id string = contentSafety.id
 
 > **Nota pedagógica — por que `customSubDomainName` é obrigatório?** Cognitive Services exige um **subdomain único globalmente** (não só dentro da sub) para construir o endpoint `https://<name>.cognitiveservices.azure.com/`. Se você usar `name: 'cs-test'` e alguém no mundo já tomou, deploy falha com `SubdomainAlreadyExists`. Pattern: incluir env no nome (`cs-helpsphere-staging` vs `cs-helpsphere-prod`) reduz colisão.
 
-> **Nota pedagógica — `publicNetworkAccess: 'Enabled'` é production-grade?** Não — em prod real, você usa **Private Endpoints + VNet integration** (`publicNetworkAccess: 'Disabled'` + private DNS). Para o lab, `Enabled` simplifica para focar em CI/CD pattern. Veja Capítulo 06 (APIM gateway) para o **pattern de fronteira pública** que isola Content Safety atrás de APIM com JWT validation.
+> **Nota pedagógica — `publicNetworkAccess: 'Enabled'` é production-grade?** Não — em prod real, você usa **Private Endpoints + VNet integration** (`publicNetworkAccess: 'Disabled'` + private DNS). Para o lab, `Enabled` simplifica o smoke test. O **pattern de fronteira pública** (APIM com JWT validation isolando Content Safety) fica fora deste capítulo — quando você plugar o APIM provisionado no Passo 2.2, vale acrescentar policy `validate-jwt` antes do `backend` apontando para Content Safety.
+
+> **Surpresa pedagógica — `kind = 'ContentSafety'` ≠ `kind = 'AIServices'`:** se você copiou de outro Cognitive Services template e o `kind` ficou `'AIServices'` (multi-service umbrella), o deploy passa mas o endpoint Content Safety **não responde** os paths `/contentsafety/text:analyze`. O resource provider é o mesmo (`Microsoft.CognitiveServices/accounts`), mas o `kind` muda o SKU plane disponível. Sempre `'ContentSafety'` literal para este módulo.
 
 ---
 
@@ -315,9 +320,11 @@ output instrumentationKey string = appInsights.properties.InstrumentationKey
 > **Alternativa via Portal Azure (apenas referência):**
 > Portal → **Application Insights** → **Create** → você confirma os campos (Application_Type, Workspace-based, Workspace ID). Pattern Bicep replica isso em template versionado.
 
-> **Custo:** App Insights cobra por **GB ingerido** (não por número de eventos). Daily cap default = 100GB → use Capítulo 07 para configurar daily cap em 1GB (corta custo a R$ 5-15/mês). Sem daily cap, lab pode estourar R$ 100+/mês se Function logs verbose.
+> **Custo:** App Insights cobra por **GB ingerido** (não por número de eventos). Os primeiros **5GB/mês são free tier** (cobre o lab inteiro com folga). Daily cap default = 100GB — para evitar surpresa, configure manualmente daily cap em 1GB pelo Portal (`Application Insights → Usage and estimated costs → Daily cap`) após o deploy. Sem cap, Function App com logs verbose pode estourar R$ 100+/mês.
 
-> **Nota pedagógica — workspace-based (Log Analytics) vs classic (legacy):** App Insights **classic** vai EOL em fev/2025 (já EOL na hora dessa gravação). **Sempre workspace-based** em novos projetos. O `workspaceId` aponta para um Log Analytics workspace pré-existente (`log-helpsphere-ia` no RG `rg-helpsphere-ia` do Bloco 2 do curso). Se você está rodando standalone (sem Bloco 2), crie um workspace primeiro: `az monitor log-analytics workspace create -g rg-lab-avancado -n log-helpsphere-ia`.
+> **Surpresa pedagógica — `WorkspaceResourceId` obrigatório:** App Insights "classic" (sem workspace) está deprecated. Se você omitir a property `WorkspaceResourceId` ou apontar para um workspace que não existe, o deploy falha com `LinkedAuthorizationFailed` (a mensagem é enganosa — parece RBAC, mas é resource-not-found). Sempre rode `az monitor log-analytics workspace show -g rg-lab-avancado -n log-helpsphere-lab` ANTES de `az deployment group create`.
+
+> **Nota pedagógica — workspace-based (Log Analytics) vs classic (legacy):** App Insights **classic** já está EOL — **sempre workspace-based** em novos projetos. O `workspaceId` aponta para um Log Analytics workspace pré-existente (`log-helpsphere-lab` em `rg-lab-avancado`). Se você ainda não criou esse workspace, rode antes do deploy: `az monitor log-analytics workspace create -g rg-lab-avancado -n log-helpsphere-lab -l eastus2`.
 
 > **Nota pedagógica — output `instrumentationKey` mesmo sendo "legacy":** APIM Logger **só aceita** instrumentation key (não Connection String — ainda). Por isso outputamos os dois. Aplicações novas (Function App, ACA) usam **Connection String**. APIM Logger usa **Instrumentation Key**. É inconsistência da Microsoft, não sua.
 
@@ -329,16 +336,16 @@ output instrumentationKey string = appInsights.properties.InstrumentationKey
 
 Crie o arquivo `infra/modules/policy.bicep`:
 
-> **D12 fix — bug recorrente:** `Microsoft.Authorization/policyDefinitions` e `policyAssignments` em **scope = subscription** não podem ser declarados num módulo cujo deployment alvo é `resourceGroup`. Isso faz Bicep falhar com `InvalidTemplate: scope mismatch`. A correção é **`targetScope = 'subscription'`** no topo do arquivo + chamar este módulo via `az deployment sub create` (não `az deployment group create`).
+> **Bug recorrente 1 (scope mismatch):** `Microsoft.Authorization/policyDefinitions` e `policyAssignments` em **scope = subscription** não podem ser declarados num módulo cujo deployment alvo é `resourceGroup`. Isso faz Bicep falhar com `InvalidTemplate: scope mismatch`. A correção é **`targetScope = 'subscription'`** no topo do arquivo + chamar este módulo via `az deployment sub create` (não `az deployment group create`).
 >
-> **Bug 2:** o SP `sp-github-actions-helpsphere` foi criado com role `Contributor` no RG (Capítulo 03). Mas Policy Assignment **cria role assignments compensatórios** (para o managed identity da policy ler/auditar recursos), e isso exige `Microsoft.Authorization/roleAssignments/write` — que `Contributor` NÃO tem. A correção é dar **`User Access Administrator`** (UAA) ao SP no escopo da subscription antes do Policy Assignment rodar.
+> **Bug recorrente 2 (RBAC compensatório):** se você for usar um Service Principal (em vez do usuário logado) para rodar este deploy, ele precisa de role `Contributor` **+** `User Access Administrator` (UAA) no escopo da subscription. Policy Assignment **cria role assignments compensatórios** (para o managed identity da policy ler/auditar recursos), e isso exige `Microsoft.Authorization/roleAssignments/write` — que `Contributor` NÃO tem. UAA tem. Para rodar com o usuário logado em `az login` (caminho desta versão), seu próprio Owner/UAA na sub já cobre.
 
 ```bicep
 // infra/modules/policy.bicep — somente em prod
 // Deploy via: az deployment sub create --location <region> --template-file infra/modules/policy.bicep
 targetScope = 'subscription'
 
-@description('Object ID do SP sp-github-actions-helpsphere — `az ad sp show --id <appId> --query id -o tsv`')
+@description('Object ID do principal que vai aplicar policy assignments — pode ser SP (`az ad sp show --id <appId> --query id -o tsv`) ou seu user (`az ad signed-in-user show --query id -o tsv`)')
 param githubActionsSpObjectId string
 
 @description('RG onde os Policy Assignments aplicam')
@@ -522,36 +529,55 @@ output rgScope string = rgScope
 
 > **Nota pedagógica — por que `dependsOn` explícito em assignments?** Sem `dependsOn`, ARM tenta criar `modelAllowlistAssign` paralelo às role grants. Se assignment roda **antes** da role grant aplicar (ARM eventual consistency), falha com `AuthorizationFailed`. `dependsOn` linearize: role grants completam → assignments começam. Pattern canônico **toda vez que policy/RBAC misturam**.
 
-> **Nota pedagógica — `targetScope = 'subscription'` força deploy command diferente:** templates subscription-scoped exigem `az deployment sub create --location <region>` em vez de `az deployment group create`. Por isso este módulo é **deployado separadamente** do `main.bicep` (Capítulo 05 mostra os 2 jobs distintos no pipeline).
+> **Nota pedagógica — `targetScope = 'subscription'` força deploy command diferente:** templates subscription-scoped exigem `az deployment sub create --location <region>` em vez de `az deployment group create`. Por isso este módulo é **deployado separadamente** do `main.bicep`.
 
 ---
 
-## Validação parcial (estrutura de pastas)
+## Passo 2.6 — Validação visual (Bicep extension + `az bicep build`)
 
-Confirme que sua estrutura ficou assim:
+Antes de fechar este capítulo, faça **validação visual de zero erros** em todos os 5 templates — combine VS Code Bicep extension (lint inline) com `az bicep build` (compilação para ARM JSON).
 
-```text
-helpsphere-ia/
-├── .github/
-│   └── workflows/        # ainda vazio — workflows vêm no Capítulo 05
-├── infra/
-│   ├── main.bicep        # Passo 2.1
-│   ├── modules/
-│   │   ├── apim.bicep              # Passo 2.2
-│   │   ├── content-safety.bicep    # Passo 2.3
-│   │   ├── app-insights.bicep      # Passo 2.4
-│   │   └── policy.bicep            # Passo 2.5
-│   └── envs/             # ainda vazio — parameter files vêm no Capítulo 04b
-└── ...
-```
+**1. Estrutura de pastas:**
 
 ```powershell
-# Verificar:
 Get-ChildItem -Force infra/, infra/modules/
-# Esperado: 5 arquivos .bicep total (1 main + 4 modules)
+# Esperado: infra/main.bicep + infra/modules/{apim,content-safety,app-insights,policy}.bicep
+# Total: 5 arquivos .bicep (1 main + 4 modules)
 ```
 
 > **Linux/Mac/WSL:** `ls -la infra/ infra/modules/`
+
+**2. Validação inline VS Code (visual):**
+
+Abra cada um dos 5 arquivos `.bicep` no VS Code. Confirme:
+
+- ❌ **Zero squiggles vermelhos** (errors) em qualquer linha
+- ⚠️ Squiggles amarelos (warnings) são aceitáveis se forem `BCP081` (preview API version) — comum em `2023-09-01-preview` do APIM
+- ✅ **Outline panel** (Ctrl+Shift+O) mostra symbols `resource`, `param`, `output` corretamente — confirma que o Bicep extension parseou o arquivo inteiro
+- ✅ **Hover sobre `module 'modules/x.bicep'`** em `main.bicep` mostra o tipo inferido dos outputs (`apim.outputs.gatewayUrl` deve aparecer como `string`)
+
+<!-- screenshot: cap04a-passo2.6-vscode-bicep-extension-zero-errors.png -->
+
+**3. Compilação para ARM (`az bicep build`):**
+
+```powershell
+# Compilar main.bicep (encadeia automaticamente os 3 modules resource-group-scoped)
+az bicep build --file infra/main.bicep
+
+# Compilar policy.bicep separado (subscription-scoped)
+az bicep build --file infra/modules/policy.bicep
+
+# Listar JSON gerados — esperado: 2 arquivos .json (main.json + modules/policy.json)
+Get-ChildItem -Recurse infra/ -Filter *.json
+```
+
+**Output esperado:** comando retorna **sem mensagens** (silêncio = sucesso em CLI Azure). Os arquivos `infra/main.json` e `infra/modules/policy.json` aparecem ao lado dos `.bicep`. Se houver erro de sintaxe, `az bicep build` imprime o caminho + linha + mensagem (ex.: `Error BCP033: Expected a value of type "string" but the provided value is of type "int"`).
+
+> **Linux/Mac/WSL:** mesmos comandos, sem mudanças (Azure CLI é cross-platform).
+
+> **Custo:** R$ 0 — `az bicep build` é compilação local.
+
+> **Nota pedagógica — `.json` gerados devem entrar no `.gitignore`?** Sim. O `.bicep` é a fonte da verdade; o `.json` é artefato de build (como `*.pyc`). Adicione `infra/**/*.json` ao `.gitignore` antes de commitar.
 
 ---
 
@@ -566,19 +592,23 @@ Get-ChildItem -Force infra/, infra/modules/
 [ ] Output instrumentationKey wireado de app-insights.bicep para apim.bicep
 [ ] Comentário inline em main.bicep explicando por que policy não é instanciado lá
 [ ] VS Code Bicep extension não reporta erros (squiggles vermelhos) em nenhum arquivo
+[ ] az bicep build infra/main.bicep retorna silêncio (sucesso) e gera infra/main.json
+[ ] az bicep build infra/modules/policy.bicep retorna silêncio e gera infra/modules/policy.json
 ```
 
-> **Nota:** ainda **NÃO commit** este capítulo isolado. Vamos fechar 04b (parameter files + lint) antes de commitar tudo junto.
+> **Nota:** ainda **NÃO commit** este capítulo isolado. Feche o próximo (parameter files + lint) antes de commitar tudo junto.
 
 ---
 
 ## Surpresas pedagógicas (capturadas em smoke runs)
 
 - ⚠️ **`InvalidTemplate: scope mismatch` em policy.bicep** — você esqueceu de cravar `targetScope = 'subscription'` na primeira linha. Bicep default é `resourceGroup`, e Policy Definitions exigem subscription scope. Workaround: adicione `targetScope = 'subscription'` antes de qualquer `param` ou `resource`.
-- ⚠️ **`ResourceNotFound: instrumentation-key` no logger APIM** — você esqueceu o `dependsOn: [namedValueInstrumentationKey]` no recurso logger. ARM tenta criar logger paralelo ao named value e perde a corrida. Workaround: cravar `dependsOn` explícito sempre que recurso A referencia recurso B via expressão dinâmica.
-- ⚠️ **`SubdomainAlreadyExists` no Content Safety deploy** — `customSubDomainName: 'cs-test'` colide globalmente. Você não percebe na hora porque Bicep build passa (validação local não checa Azure). Só falha em deploy real (Capítulo 05). Workaround: incluir env no nome (`cs-helpsphere-staging`).
-- ⚠️ **Bicep extension VS Code não detecta `WorkspaceResourceId` errado** — se o `workspaceId` aponta para Log Analytics que não existe na sub, Bicep build passa, deploy falha em Capítulo 05 com `LinkedAuthorizationFailed`. Workaround: rode `az monitor log-analytics workspace show -g rg-helpsphere-ia -n log-helpsphere-ia` ANTES de deploy para confirmar que existe.
-- ⚠️ **APIM Developer demora ~30-45 min para provisionar** — não é erro, é o SKU. Capítulo 05 cobre como rodar outros caps em paralelo enquanto APIM provisiona.
+- ⚠️ **`ResourceNotFound: instrumentation-key` no logger APIM** — você esqueceu o `dependsOn: [namedValueInstrumentationKey]` no recurso logger. ARM tenta criar logger paralelo ao named value e perde a corrida. Workaround: cravar `dependsOn` explícito sempre que recurso A referencia recurso B via expressão dinâmica em string (`{{instrumentation-key}}`), porque Bicep **não** infere essa dependência automaticamente.
+- ⚠️ **`SubdomainAlreadyExists` no Content Safety deploy** — `customSubDomainName: 'cs-test'` colide globalmente. Você não percebe na hora porque `az bicep build` passa (validação local não checa Azure). Só falha em `az deployment group create`. Workaround: incluir env no nome (`cs-helpsphere-staging`) e adicionar sufixo random com `uniqueString(resourceGroup().id)` em prod real.
+- ⚠️ **Bicep extension VS Code não detecta `WorkspaceResourceId` apontando para workspace inexistente** — `az bicep build` passa, deploy real falha com `LinkedAuthorizationFailed` (mensagem enganosa — parece RBAC, mas é resource-not-found). Workaround: rode `az monitor log-analytics workspace show -g rg-lab-avancado -n log-helpsphere-lab` ANTES de deploy para confirmar.
+- ⚠️ **Path relativo de `module` quebra se você mover `main.bicep`** — `module x 'modules/x.bicep'` resolve relativo ao arquivo que **declara** o module, não ao cwd. Se você ter `infra/main.bicep` e mover para `infra/deploy/main.bicep`, o path `'modules/x.bicep'` quebra (busca `infra/deploy/modules/x.bicep`). Workaround: sempre use `'./modules/x.bicep'` (com `./` explícito) para deixar a intenção clara e fácil de refatorar.
+- ⚠️ **Output Bicep não declarado retorna `null` no parent sem erro** — se você esquecer `output gatewayUrl string = apim.properties.gatewayUrl` em `apim.bicep`, o `main.bicep` referenciando `apim.outputs.gatewayUrl` **não falha em build** — só retorna `null` no `az deployment group show`. Você descobre quando o capítulo seguinte tenta usar a URL vazia. Workaround: para todo output que parent consome, valide com `az bicep build` + grep no `.json` gerado por `"outputs"`.
+- ⚠️ **APIM Developer demora ~30-45 min para provisionar** — não é erro, é o SKU. Provisione com `az deployment group create` rodando em background e use outro terminal para seguir os capítulos seguintes em paralelo.
 
 ---
 

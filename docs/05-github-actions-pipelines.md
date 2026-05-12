@@ -4,16 +4,16 @@
 >
 > **Tempo:** 30-45 min (não inclui ~30-45 min de provisão APIM em background — você inicia, abre outro terminal e segue Capítulos 06+ enquanto roda)
 >
-> **Status:** `v0.3.0-cli-manual` ⚠️ REESCRITO — versão `v0.2.0-piloto` cobria GitHub Actions com 3 workflows + Federated SP, escopo removido nesta versão para reduzir superfície de falha (ABAC, OIDC trust, environments). Esta versão é **100% Portal+CLI manual**.
+> **Status:** `v0.3.0-cli-manual` ⚠️ REESCRITO — escopo CI/CD via GitHub Actions movido para capítulo futuro; esta versão é **100% Portal+CLI manual**.
 
 ---
 
 ## Nota — CI/CD via GitHub Actions é capítulo futuro
 
-Versões anteriores deste Capítulo cravavam **3 workflows GitHub Actions** (`ci.yml` + `cd-staging.yml` + `cd-prod.yml`) com OIDC Federated Service Principal + 2 GitHub Environments + approval gate manual em prod. Essa abordagem **fica fora do escopo desta versão** por 3 motivos:
+Versões anteriores desta documentação cravavam **3 workflows GitHub Actions** (`ci.yml` + `cd-staging.yml` + `cd-prod.yml`) com OIDC Federated Service Principal + 2 GitHub Environments + approval gate manual em prod. Essa abordagem **fica fora do escopo desta versão** por 3 motivos:
 
-1. **Superfície de falha grande** — federated SP exige sub sem ABAC (R6); subs `live.com` VSE pessoais bloqueiam role assignment.
-2. **Acoplamento com GitHub** — aluno precisa de scope `workflow` + `delete_repo` no `gh` CLI, branch protection cravada antes, environments configurados.
+1. **ABAC condition em algumas subscriptions** — bloqueia role assignment para federated SP; subscriptions `live.com` pessoais costumam ter essa restrição.
+2. **Acoplamento forte com GitHub** — aluno precisa de scopes específicos no `gh` CLI (`workflow` + `delete_repo`), branch protection cravada antes, environments configurados.
 3. **Foco pedagógico** — esta versão prioriza **dominar Bicep + Azure CLI primeiro**. CI/CD vira capítulo dedicado em release futura (production-grade canônico **assumindo** que aluno já entendeu o Bicep).
 
 Aluno que terminar este Lab Avançado e quiser CI/CD: estude OIDC Federated SP, `azure/login@v2`, GitHub Environments com `required reviewers`. Pattern não muda — só onde o `az deployment group create` é chamado (runner ubuntu em vez de máquina local).
@@ -117,6 +117,8 @@ az deployment group create `
 
 > **Atenção timeout PS7:** terminal PowerShell pode "parecer travado" durante os 30+ min. **NÃO** dê Ctrl+C — você cancela o deployment Azure-side. Se precisar fechar o terminal, use `Get-Process powershell | Stop-Process` em outro terminal, mas o deployment **continua no Azure**. Verifique com `az deployment group list -g rg-lab-avancado --query "[?provisioningState=='Running'].name" -o tsv`.
 
+> **Nota pedagógica — APIM Gateway não é upstream de RAG neste lab:** A Function App RAG (provisionada no Capítulo 04 do Lab Final) é chamada DIRETO pelo agente SDK via HTTP, sem passar pelo APIM Gateway. APIM neste Lab Avançado é reservado para APIs de negócio (HelpSphere REST API), não para tools internos do agente. Em produção real, você pode reposicionar RAG atrás de APIM para ganhar rate limiting, caching e telemetry centralizada — fica como evolução para versões futuras.
+
 ---
 
 ## Passo 5.3 — Validar resources criados em `dev`
@@ -217,7 +219,7 @@ az deployment group create `
 
 > **Custo:** +R$ 8/dia adicional se prod coexistir com dev+staging (3 APIM Developer ligados = R$ 24/dia = R$ 720/mês se esquecido). **Cleanup obrigatório no Capítulo 10.**
 
-> **Nota pedagógica — sem approval gate em CLI manual:** em CI/CD GitHub Actions (versão `v0.2.0` deste capítulo), `cd-prod.yml` usava `environment: production` com `required reviewers` — bloqueio humano antes do deploy prod. Em CLI manual, o **próprio aluno** é o gate. Recomenda-se: (a) só rode `prod` depois de validar `dev` E `staging`, (b) leia `what-if` linha-a-linha antes de digitar `Enter`, (c) use `--confirm-with-what-if` flag se quiser dupla confirmação.
+> **Nota pedagógica — sem approval gate em CLI manual:** em CI/CD GitHub Actions, é comum usar `environment: production` com `required reviewers` no workflow de prod — bloqueio humano antes do deploy. Em CLI manual, o **próprio aluno** é o gate. Recomenda-se: (a) só rode `prod` depois de validar `dev` E `staging`, (b) leia `what-if` linha-a-linha antes de digitar `Enter`, (c) use `--confirm-with-what-if` flag se quiser dupla confirmação.
 
 ```powershell
 # Variante com dupla confirmação (Azure CLI imprime what-if + pede confirmação interativa)

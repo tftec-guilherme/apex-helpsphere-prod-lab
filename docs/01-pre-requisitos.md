@@ -3,8 +3,6 @@
 > **Objetivo:** validar — antes de provisionar 1 byte — que sua subscription, tooling e contas Git estão prontas para o pipeline production-grade. Sair daqui com a tela de "Subscription OK · ABAC OK · gh logado · Bicep instalado · Foundry decidido" antes de tocar o Capítulo 02.
 >
 > **Tempo:** 30-45 min (mais ~10 min se precisar instalar tooling do zero · pode dobrar se cair em ABAC e tiver que pivotar de subscription)
->
-> **Status:** `v0.2.0-portal` ⚠️ EXPANDIDO (era `v0.1.0-init` outline) — derivado de `Lab_Avancado_IA_Producao_Guia_Portal.md` Pré-requisitos (linhas 45-77) + R6 disclaimer recap
 
 ---
 
@@ -16,17 +14,17 @@
 
 ---
 
-## DISCLAIMER R6 (recap obrigatório) — checagem ABAC antes de tudo
+## ABAC condition check obrigatório — antes de tudo
 
-Este lab é o **único dos 3 Labs D06 que sobe CI/CD via Service Principal federado**. Isso significa que sua subscription **não pode ter ABAC condition ativa** — caso contrário o workflow `ci.yml` falha no primeiro `az role assignment create` e o demo CI/CD perde o valor pedagógico.
+Este Lab Avançado é o único caminho do material em que potencialmente se sobe CI/CD via Service Principal federado (cenário avançado opcional, fora do escopo principal). Mesmo na rota CLI manual, sua subscription **não pode ter ABAC condition restritiva** — caso contrário, role assignments via SP federado (ou cenários equivalentes) falham silenciosamente e o caminho production-grade end-to-end perde sentido.
 
-> **TL;DR (detalhes completos no Capítulo 03 — `docs/03-service-principal-federated.md`):**
+> **TL;DR — matriz de subscriptions:**
 >
-> - **Visual Studio Enterprise (`live.com`):** ABAC default ATIVO → **CI/CD falha** (use sub TFTEC, PAYG ou corporate)
-> - **Free Trial USD 200:** sem ABAC, mas sem PAYG → Azure OpenAI bloqueia
+> - **Visual Studio Enterprise (`live.com`):** ABAC default ATIVO → role assignment via SP federado falha (use sub TFTEC, PAYG ou corporate)
+> - **Free Trial USD 200:** sem ABAC, mas sem PAYG → Azure OpenAI bloqueia provisioning
 > - **PAYG sem ABAC / TFTEC / Corporate sem CA restritiva:** funciona ✅
 
-Você ainda consegue rodar `az deployment group create` localmente com sua user identity em qualquer sub, mas o foco do lab é o pipeline — então **resolva ABAC antes**, não depois.
+Você ainda consegue rodar `az deployment group create` localmente com sua user identity em qualquer sub, mas o lab assume cenário production-grade — então **resolva ABAC antes**, não depois.
 
 ---
 
@@ -39,7 +37,7 @@ Você ainda consegue rodar `az deployment group create` localmente com sua user 
 - ✅ ~30 minutos contínuos sem reuniões (algumas ações disparam provisões longas — APIM ~30-45 min — então prepare paralelismo)
 - ✅ Espaço em disco **mínimo 2 GB** livre (clone repo + Bicep build cache + venv Python)
 
-> **Atenção breaking — versão Bicep antiga:** Bicep CLI < 0.30 não suporta `userDefinedTypes` e `compile-time imports` que aparecem em `infra/modules/*.bicep`. Se você não atualiza desde 2024, o Capítulo 04 vai estourar com `BCP236: Expected new line character`. Atualize ANTES (`az bicep upgrade`).
+> **Atenção breaking — versão Bicep antiga:** Bicep CLI < 0.30 não suporta `userDefinedTypes` e `compile-time imports` que aparecem em `infra/modules/*.bicep`. Se você não atualiza desde a versão 0.20 (linha antiga), o Capítulo 04 vai estourar com `BCP236: Expected new line character`. Atualize ANTES (`az bicep upgrade`) e sempre prefira ≥ 0.30.
 
 ---
 
@@ -48,12 +46,12 @@ Você ainda consegue rodar `az deployment group create` localmente com sua user 
 | Item | Como validar | Falha bloqueante? | Tempo |
 |---|---|---|---|
 | 1. Subscription Azure ativa | `az account show` retorna state `Enabled` | SIM | 1 min |
-| 2. ABAC condition INATIVA na sub | `az role assignment create` com SP de teste não retorna `ConditionRequiresAuthorization` | SIM (R6) | 5-10 min |
+| 2. ABAC condition INATIVA na sub | `az role assignment create` com SP de teste não retorna `ConditionRequiresAuthorization` | SIM | 5-10 min |
 | 3. Tooling local (Az CLI · Bicep · Python · gh CLI · VS Code + extensions) | `az --version`, `bicep --version`, `python --version`, `gh auth status` | SIM | 5-15 min |
 | 4. Conta GitHub + repo privado **vazio** `helpsphere-ia` criável | `gh repo create --private --confirm=false` (dry) | SIM | 2-3 min |
-| 5. Foundry Hub `aifhub-apex-prod` (decisão prof) — provisionado OU plano B | `az ml workspace show --name aifhub-apex-prod` OU plano B textual | NÃO (gated) | 2 min |
+| 5. Foundry Hub `aifhub-apex-prod` (do Lab Intermediário) — provisionado OU plano B | `az ml workspace show --name aifhub-apex-prod` OU plano B textual | NÃO (gated) | 2 min |
 
-> **Nota pedagógica — por que validar ABAC ANTES de provisionar?** Stop-loss puro: ABAC bloqueia role assignments via SP federado **silenciosamente** até o primeiro `az role assignment create` do CI workflow. Se você descobre isso só depois de provisionar APIM (R$ 250/mês prorated) e clonar repo + criar SP + 2 federated creds, você queimou ~1h e ~R$ 30 antes do erro aparecer. **Validar a custo zero agora salva a sessão de gravação.**
+> **Nota pedagógica — por que validar ABAC ANTES de provisionar?** Stop-loss puro: ABAC bloqueia role assignments via SP federado **silenciosamente** até o primeiro `az role assignment create`. Se você descobre isso só depois de provisionar APIM (R$ 250/mês prorated) e clonar repo + criar SP + 2 federated creds, queimou ~1h e ~R$ 30 antes do erro aparecer. **Validar a custo zero agora salva a sessão inteira.**
 
 ---
 
@@ -101,7 +99,7 @@ Você ainda consegue rodar `az deployment group create` localmente com sua user 
 **No terminal local (Windows PowerShell 7):**
 
 ```powershell
-# 1. Azure CLI >= 2.60 (validamos em 2.65 na gravação)
+# 1. Azure CLI >= 2.60 (validamos em 2.65 no smoke run de referência)
 az --version
 # Se < 2.60: https://learn.microsoft.com/cli/azure/install-azure-cli
 #   Windows: winget install Microsoft.AzureCLI
@@ -154,7 +152,7 @@ Este lab é IaC end-to-end — o código Bicep + workflows YAML + Python eval vi
 2. Preencher:
    - **Owner:** seu user (anote — vamos referenciar no Capítulo 03 federated credential `subject`)
    - **Repository name:** `helpsphere-ia` (case-sensitive — combina com `subject` do federated credential)
-   - **Description:** `Lab Avançado D06 — IA Production-grade (Apex HelpSphere)`
+   - **Description:** `Lab Avançado — IA Production-grade (Apex HelpSphere)`
    - **Visibility:** ☑ **Private** (recomendado — não vamos commitar segredos, mas Bicep mostra arquitetura)
    - ☐ **Add a README file** (NÃO marcar — queremos repo vazio para `git push` inicial)
    - ☐ Add `.gitignore` (NÃO marcar)
@@ -168,7 +166,7 @@ Este lab é IaC end-to-end — o código Bicep + workflows YAML + Python eval vi
 > ```powershell
 > gh repo create helpsphere-ia `
 >   --private `
->   --description "Lab Avançado D06 — IA Production-grade (Apex HelpSphere)" `
+>   --description "Lab Avançado — IA Production-grade (Apex HelpSphere)" `
 >   --confirm
 >
 > # Confirmar criação
@@ -183,7 +181,7 @@ Este lab é IaC end-to-end — o código Bicep + workflows YAML + Python eval vi
 
 ---
 
-## Passo 1.4 — Validar ABAC condition INATIVA (R6 stop-loss)
+## Passo 1.4 — Validar ABAC condition INATIVA (stop-loss obrigatório)
 
 Esta é a validação **mais importante** do Capítulo. Custo R$ 0. Tempo 5-10 min. Salva ~1h se ABAC estiver ativo.
 
@@ -237,7 +235,7 @@ Esta é a validação **mais importante** do Capítulo. Custo R$ 0. Tempo 5-10 m
 
 > **Custo:** R$ 0 — SPs e role assignments são gratuitos · cleanup do SP é obrigatório (cravado no comando acima).
 
-> **Nota pedagógica — por que esse teste é o canário do lab inteiro?** O CI workflow do Capítulo 05 faz **exatamente** essa operação (`role assignment create` via SP federado) toda vez que provisiona APIM/Content Safety. Se a operação falha agora com seu SP de teste, falha em produção. Inversamente, se passa agora, você tem confiança alta de que o CI/CD vai funcionar end-to-end. **Pattern Microsoft:** `az role assignment create --dry-run` (em preview) faz o mesmo sem criar nada — quando GA chegar, este Passo simplifica.
+> **Nota pedagógica — por que esse teste é o canário do lab inteiro?** Cenários production-grade fazem **exatamente** essa operação (`role assignment create` via SP federado ou identity equivalente) toda vez que provisionam APIM/Content Safety. Se a operação falha agora com seu SP de teste, falha em produção. Inversamente, se passa agora, você tem confiança alta de que a stack vai funcionar end-to-end. **Pattern Microsoft:** `az role assignment create --dry-run` (em preview) faz o mesmo sem criar nada — quando GA chegar, este Passo simplifica.
 
 > **⚠️ Plano B se ABAC estiver ativo:** você tem 4 opções, em ordem de preferência:
 > 1. **Pedir ao admin do tenant para remover a condition** (corporate) — 10 min, melhor cenário
@@ -249,14 +247,14 @@ Esta é a validação **mais importante** do Capítulo. Custo R$ 0. Tempo 5-10 m
 
 ## Passo 1.5 — Decidir Foundry Hub: existente vs provisionar ao vivo
 
-O lab Avançado **opcionalmente** integra com o Foundry Hub `aifhub-apex-prod` para custom metrics LLM (Capítulo 07) e eval offline (Capítulo 09). Como o Hub não foi provisionado em todos os tenants, há 2 caminhos.
+O Lab Avançado **opcionalmente** integra com o Foundry Hub `aifhub-apex-prod` (provisionado no Lab Intermediário, hospedado em `rg-lab-intermediario`) para custom metrics LLM (Capítulo 07) e eval offline (Capítulo 09). Como nem todo aluno passou pelo Lab Intermediário, há 2 caminhos.
 
 **No Portal Azure:**
 
 1. Buscar **"AI Foundry"** (ou **"Azure Machine Learning"**) → aba **Hubs**
-2. Procure `aifhub-apex-prod` na lista
-3. Se existe → **Status: Succeeded** → anote o **Resource Group** que hospeda → você está pronto
-4. Se não existe (esperado em sub nova) → vamos seguir o **plano B** (provisionar ao vivo na gravação ou usar mocks)
+2. Procure `aifhub-apex-prod` na lista (RG esperado: `rg-lab-intermediario`)
+3. Se existe → **Status: Succeeded** → confirme que o **Resource Group** é `rg-lab-intermediario` → você está pronto
+4. Se não existe (esperado em sub que não rodou Lab Intermediário) → vamos seguir o **plano B** (provisionar ao vivo OU usar stubs)
 
 <!-- screenshot: cap01-passo1.5-foundry-hub-aifhub-apex-prod.png -->
 
@@ -264,7 +262,7 @@ O lab Avançado **opcionalmente** integra com o Foundry Hub `aifhub-apex-prod` p
 > ```powershell
 > az ml workspace show `
 >   --name aifhub-apex-prod `
->   --resource-group <RG_DO_HUB> `
+>   --resource-group rg-lab-intermediario `
 >   --query "{name:name, kind:kind, provisioningState:provisioningState}" -o table
 >
 > # Se retorna "ResourceNotFound" → Hub não existe nesta sub → plano B
@@ -355,15 +353,16 @@ az ml workspace list --query "[?name=='aifhub-apex-prod'].name" -o tsv
 ```text
 [ ] Subscription state=Enabled validado no Portal e via az account show
 [ ] Subscription ID e Tenant ID anotados em local seguro
-[ ] ABAC condition INATIVA (Passo 1.4 SP de teste passou) — R6 OK
+[ ] ABAC condition INATIVA (Passo 1.4 SP de teste passou)
 [ ] Az CLI >= 2.60 instalado e logado
 [ ] Bicep CLI >= 0.30 instalado (via az bicep upgrade)
 [ ] Python 3.11+ instalado e no PATH
-[ ] gh CLI >= 2.40 instalado e gh auth status verde
+[ ] gh CLI >= 2.40 instalado e gh auth status verde (scopes mínimos repo + workflow)
 [ ] VS Code com extensões Bicep + GitHub Actions + Python instaladas
 [ ] Repo privado helpsphere-ia criado (vazio, sem README)
-[ ] Foundry Hub aifhub-apex-prod localizado OU plano B stub aceito
+[ ] Foundry Hub aifhub-apex-prod localizado em rg-lab-intermediario OU plano B stub aceito
 [ ] SP de teste do Passo 1.4 deletado (cleanup)
+[ ] Subscription OK · ABAC OK · gh logado · Bicep ≥ 0.30 · Foundry decidido
 ```
 
 ---
@@ -375,6 +374,8 @@ az ml workspace list --query "[?name=='aifhub-apex-prod'].name" -o tsv
 - ⚠️ **Repo `helpsphere-ia` criado com README** — você marcou `Add README` no Passo 1.3 e agora `git push` do Capítulo 02 falha com `non-fast-forward` · workaround: (a) deletar e recriar, OU (b) `git pull --rebase origin main` antes do primeiro push, OU (c) `git push --force` (perigoso, só em repo recém-criado).
 - ⚠️ **Visual Studio Enterprise sub mostra "Enabled" mas ABAC bloqueia silenciosamente** — Portal não exibe condition ABAC default em VSE pessoais · só descobre via Passo 1.4 SP de teste · **stop-loss:** sempre rode o teste, nunca confie só no Portal.
 - ⚠️ **Tenant ID confuso em conta multi-tenant (Microsoft 365 + dev tenant)** — `az account show --query tenantId` mostra o tenant da sub atual, mas seu login GitHub pode estar vinculado a outro tenant Entra · valide com `az account list --query "[].tenantId" -o tsv | Sort-Object -Unique` (PowerShell) ou `az account list --query "[].tenantId" -o tsv | sort -u` (Linux/Mac/WSL) — deve listar 1 só, antes de cravar federated credential no Capítulo 03.
+- ⚠️ **Sub TFTEC corporate sem Conditional Access restritiva é o caminho recomendado** — alunos da disciplina recebem acesso à sub TFTEC; ela tipicamente não tem ABAC ativo nem CA bloqueando role assignment. Se você está na dúvida entre PAYG nova (custo + cartão) e TFTEC (free + pronto), prefira TFTEC. **Stop-loss:** se TFTEC mostrar `Warned` em billing, retorne à PAYG própria — não tente debugar billing corporate em cima da execução do lab.
+- ⚠️ **gh CLI scope `delete_repo` ausente trava o cleanup final do lab** — você logou no `gh` com scopes `repo` + `workflow` mas esqueceu `delete_repo`. No Capítulo 10 (cleanup), `gh repo delete helpsphere-ia --confirm` retorna `HTTP 403`. Workaround antecipado: já no Passo 1.2 rode `gh auth refresh -s repo,workflow,delete_repo` — 1 comando agora evita re-login no cleanup.
 
 ---
 

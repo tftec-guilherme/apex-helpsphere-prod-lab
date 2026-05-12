@@ -3,21 +3,19 @@
 > **Objetivo:** validar Content Safety (F0 free) provisionado pelo Bicep, conectar a Function App `func-helpsphere-agent` via env vars (`CS_ENDPOINT` + `CS_KEY`), instrumentar custom metrics OpenTelemetry para tokens/custo/groundedness/safety/escalação no `agent_runner.py`, escrever 4 queries KQL canônicas em Log Analytics e montar 1 dashboard custom no Portal com 4 tiles cravados em métricas reais.
 >
 > **Tempo:** 75-90 min (não inclui ~3-30 min de latência ingest do App Insights antes dos primeiros pontos aparecerem)
->
-> **Status:** `v0.2.0-portal` ⚠️ EXPANDIDO (era `v0.1.0-init` outline) — derivado de `Lab_Avancado_IA_Producao_Guia_Portal.md` Parte 5 (Passos 5.1-5.5)
 
 ---
 
 ## Pré-requisitos
 
-- ✅ Capítulo 04a + 04b concluídos — módulos `infra/modules/content-safety.bicep` + `infra/modules/app-insights.bicep` escritos e parameters validados
-- ✅ Capítulo 05 concluído — pipeline `cd-staging.yml` rodou pelo menos uma vez, criando `cs-helpsphere-staging` (kind `ContentSafety`) + `ai-helpsphere-staging` (Application Insights workspace-based) no RG `rg-lab-avancado`
-- ✅ Capítulo 06 concluído — APIM `apim-helpsphere-staging` provisionado e Product `helpsphere-prod` publicado (a Function `func-helpsphere-agent` está exposta atrás dele)
+- ✅ Capítulo 05 concluído — `az deployment group create` rodou pelo menos uma vez, criando `cs-helpsphere-<env>` (kind `ContentSafety`) + `ai-helpsphere-<env>` (Application Insights workspace-based) no RG `rg-lab-avancado`
+- ✅ Capítulo 06 concluído — APIM `apim-helpsphere-<env>` provisionado e Product `helpsphere-prod` publicado (a Function `func-helpsphere-agent` está exposta atrás dele)
 - ✅ Function App `func-helpsphere-agent` deployada (mesmo que com handler stub) — você precisa ter acesso a **Configuration → Environment variables** dela
 - ✅ `az` CLI logado, `func` (Azure Functions Core Tools v4) instalado para `func azure functionapp publish`
 - ✅ Python 3.11 local com `azure-monitor-opentelemetry` ≥ 1.6.0 (`pip install azure-monitor-opentelemetry requests`)
+- ✅ PowerShell 7+ no Windows (ou bash em Linux/Mac/WSL) — comandos abaixo são PowerShell-first
 
-> **Atenção custo escondido:** Content Safety **F0 (free)** suporta 1.000 req/min e 5.000 req/dia — suficiente para o lab inteiro com folga. Se você fizer load test (`> 5k requests no mesmo dia`), o tier F0 começa a retornar HTTP `429 Too Many Requests` e o `agent_runner.py` cai no **fail-open** (libera o request). Se for fazer load > 5k/dia, troque para **S0** (~R$ 0,75/1.000 transações) editando `infra/modules/content-safety.bicep` (`sku.name: 'S0'`) — para o lab pedagógico, F0 é suficiente.
+> **Atenção custo escondido:** Content Safety **F0 (free)** suporta 1.000 req/min e 5.000 req/dia — suficiente para o lab inteiro com folga. Se você fizer load test (`> 5k requests no mesmo dia`), o tier F0 começa a retornar HTTP `429 Too Many Requests` e o `agent_runner.py` cai no **fail-open** (libera o request). Se for fazer load > 5k/dia, troque para **S0** (~R$ 1,00/1.000 transações texto + ~R$ 1,50/1.000 imagens) editando `infra/modules/content-safety.bicep` (`sku.name: 'S0'`) — para o lab pedagógico, F0 é suficiente.
 
 ---
 
@@ -25,10 +23,10 @@
 
 | Camada | Item | Onde fica | Custo absoluto |
 |---|---|---|---|
-| **Safety** | Content Safety F0 já provisionado pelo Bicep | RG `rg-lab-avancado` → `cs-helpsphere-staging` | R$ 0 (free tier 1k/min · 5k/dia) |
+| **Safety** | Content Safety F0 já provisionado pelo Bicep | RG `rg-lab-avancado` → `cs-helpsphere-<env>` | R$ 0 (free tier 1k/min · 5k/dia) |
 | **Safety** | Wrapper `content_safety_check()` pré e pós LLM | `src/functions/agent/function_app.py` | — |
 | **Safety** | Threshold `4` (medium) input + output | `SAFETY_BLOCK_THRESHOLD=4` em App Settings | — |
-| **Telemetria** | App Insights workspace-based + daily cap 1 GB | `ai-helpsphere-staging` | R$ 0 (≤ 5 GB/mês free) |
+| **Telemetria** | App Insights workspace-based + daily cap 1 GB | `ai-helpsphere-<env>` | R$ 0 (≤ 5 GB/mês free, ~R$ 13/GB acima) |
 | **Telemetria** | 6 custom metrics OpenTelemetry | `agent_runner.py` via `azure-monitor-opentelemetry` | R$ 0 (within free tier) |
 | **Observabilidade** | 4 queries KQL canônicas | Log Analytics `Logs` blade | R$ 0 (≤ 5 GB/mês free) |
 | **Observabilidade** | Dashboard `helpsphere-ia-dashboard` 4 tiles | Portal Azure → Dashboards | R$ 0 |
@@ -41,34 +39,38 @@
 
 ## Passo 7.1 — Verificar Content Safety provisionado e capturar endpoint + key
 
-O recurso `cs-helpsphere-staging` foi criado pelo módulo `content-safety.bicep` durante o run `cd-staging.yml` do Capítulo 05. Vamos confirmar no Portal e anotar as credenciais que vão para o Function App.
+O recurso `cs-helpsphere-<env>` (ex.: `cs-helpsphere-dev`) foi criado pelo módulo `content-safety.bicep` durante o `az deployment group create` do Capítulo 05. Vamos confirmar no Portal e anotar as credenciais que vão para o Function App.
+
+> **Placeholder `<env>`:** substitua por `dev`, `staging` ou `prod` conforme o ambiente que você deployou no Capítulo 05. Os exemplos abaixo usam `dev` — se você só deployou `dev` (recomendação custo-mínimo do Cap 05), está coberto.
 
 **No Portal Azure:**
 
 1. Topo → barra de busca → digite `Azure AI services` (também aparece como "Cognitive Services") → clique
-2. Filtre por Resource Group → selecione `rg-lab-avancado` → localize `cs-helpsphere-staging` (`Kind: ContentSafety`)
+2. Filtre por Resource Group → selecione `rg-lab-avancado` → localize `cs-helpsphere-dev` (`Kind: ContentSafety`)
 3. Clique no recurso → tab **Overview** → anote:
-   - **Endpoint:** `https://cs-helpsphere-staging.cognitiveservices.azure.com/`
+   - **Endpoint:** `https://cs-helpsphere-dev.cognitiveservices.azure.com/`
    - **Location:** `eastus2` (deve bater com a região do RG)
    - **Pricing tier:** `F0` (Free)
 4. Menu lateral → **Resource Management** → **Keys and Endpoint**
-5. Clique no botão **Show Keys** → copie **KEY 1** (vamos usar como `CS_KEY` no Function App)
+5. Clique no botão **Show Keys** → copie **KEY 1** — esse é o seu **`CONTENT_SAFETY_KEY`** (será cravado como `CS_KEY` no Function App no Passo 7.2)
 
 <!-- screenshot: cap07-passo7.1-content-safety-keys-endpoint.png -->
+
+> **Placeholder — `CONTENT_SAFETY_KEY`:** trata-se de um secret que NUNCA deve ser commitado em git. Anote em gerenciador de senhas pessoal (1Password, Bitwarden, KeePass) durante o lab. Em produção, esse valor vive em Key Vault e o Function App pega via reference (`@Microsoft.KeyVault(SecretUri=...)`) — pattern flagado pela Azure Policy `audit-managed-identity-on-functions` no Capítulo 08.
 
 > **Alternativa via Azure CLI:**
 >
 > ```powershell
 > # Endpoint
 > $CsEndpoint = az cognitiveservices account show `
->   --name cs-helpsphere-staging `
+>   --name cs-helpsphere-dev `
 >   --resource-group rg-lab-avancado `
 >   --query "properties.endpoint" -o tsv
 > Write-Host "CS_ENDPOINT=$CsEndpoint"
 >
 > # Key 1
 > $CsKey = az cognitiveservices account keys list `
->   --name cs-helpsphere-staging `
+>   --name cs-helpsphere-dev `
 >   --resource-group rg-lab-avancado `
 >   --query "key1" -o tsv
 > Write-Host "CS_KEY=$($CsKey.Substring(0, 8))…"  # primeiros 8 chars só pra confirmar
@@ -78,7 +80,7 @@ O recurso `cs-helpsphere-staging` foi criado pelo módulo `content-safety.bicep`
 
 > **Custo:** R$ 0 — Content Safety **F0** é 100% gratuito até **1.000 transações/minuto** e **5.000 transações/dia**. Cobra **zero parado** (sem custo idle). Se F0 estourar, retorna HTTP 429 — não vira S0 sozinho.
 
-> **Nota pedagógica — Managed Identity > API key (futuro):** Em produção real, **NÃO** colocamos `CS_KEY` em App Settings. Dá-se ao Function App uma **System-assigned Managed Identity** com role `Cognitive Services User` no recurso de Content Safety, e o SDK pega o token via `DefaultAzureCredential()`. Para o lab mantemos key (mais simples + visível para troubleshooting), mas o **Capítulo 09 — Runbook eval** menciona key rotation a cada 90 dias e o **Capítulo 08 — Azure Policy** crava a policy `audit-managed-identity-on-functions` justamente para flagar este débito técnico.
+> **Nota pedagógica — Managed Identity > API key (futuro):** Em produção real, **NÃO** colocamos `CS_KEY` em App Settings. Dá-se ao Function App uma **System-assigned Managed Identity** com role `Cognitive Services User` no recurso de Content Safety, e o SDK pega o token via `DefaultAzureCredential()`. Para o lab mantemos key (mais simples + visível para troubleshooting), mas o Capítulo 08 crava a policy `audit-managed-identity-on-functions` justamente para flagar este débito técnico.
 
 ---
 
@@ -91,18 +93,18 @@ A Function precisa de 3 vars: `CS_ENDPOINT`, `CS_KEY` e `SAFETY_BLOCK_THRESHOLD`
 1. Buscar `Function App` → clicar em `func-helpsphere-agent`
 2. Menu lateral → **Settings** → **Environment variables** → tab **App settings**
 3. Botão **+ Add** → criar 3 settings (uma por vez):
-   - **Name:** `CS_ENDPOINT` · **Value:** `https://cs-helpsphere-staging.cognitiveservices.azure.com/`
-   - **Name:** `CS_KEY` · **Value:** KEY 1 do Passo 7.1 (cole o valor completo)
+   - **Name:** `CS_ENDPOINT` · **Value:** `https://cs-helpsphere-dev.cognitiveservices.azure.com/` (ajuste `dev` para o env que você deployou)
+   - **Name:** `CS_KEY` · **Value:** valor do `CONTENT_SAFETY_KEY` capturado no Passo 7.1
    - **Name:** `SAFETY_BLOCK_THRESHOLD` · **Value:** `4`
-4. Botão **Apply** (rodapé) → diálogo "Save changes will restart the app" → confirmar (~30s downtime aceitável em staging)
+4. Botão **Apply** (rodapé) → diálogo "Save changes will restart the app" → confirmar (~30s downtime aceitável)
 
 <!-- screenshot: cap07-passo7.2-function-env-vars-cs.png -->
 
 > **Alternativa via Azure CLI (recomendado para reprodutibilidade):**
 >
 > ```powershell
-> $CsEndpoint = az cognitiveservices account show -n cs-helpsphere-staging -g rg-lab-avancado --query "properties.endpoint" -o tsv
-> $CsKey = az cognitiveservices account keys list -n cs-helpsphere-staging -g rg-lab-avancado --query "key1" -o tsv
+> $CsEndpoint = az cognitiveservices account show -n cs-helpsphere-dev -g rg-lab-avancado --query "properties.endpoint" -o tsv
+> $CsKey = az cognitiveservices account keys list -n cs-helpsphere-dev -g rg-lab-avancado --query "key1" -o tsv
 >
 > az functionapp config appsettings set `
 >   --name func-helpsphere-agent `
@@ -229,6 +231,8 @@ def chat(req: func.HttpRequest) -> func.HttpResponse:
 
 Custom metrics permitem agregar tokens/custo/latência **por dimensão** (modelo, feature, tenant) — coisa que `requests`/`dependencies` tables nativas não fazem fora do esquema fixo.
 
+> **Placeholder — `APPLICATIONINSIGHTS_CONNECTION_STRING`:** o SDK Azure Monitor OpenTelemetry exige **Connection String completa** (formato `InstrumentationKey=<guid>;IngestionEndpoint=https://<region>...`), não a Instrumentation Key sozinha. A Connection String é o padrão obrigatório desde 2025 — Instrumentation Key isolada é **deprecated**. Capture do recurso `ai-helpsphere-<env>` → tab **Overview** → campo **Connection String** (não confunda com **Instrumentation Key** logo acima). Deve já estar cravada como App Setting `APPLICATIONINSIGHTS_CONNECTION_STRING` pelo `app-insights.bicep` (output `connectionString` → setting Function App). Confirme em **Function App → Configuration → Application settings** antes do deploy do Passo 7.4 — ausência derruba startup (ver Surpresas pedagógicas).
+
 **No editor local — `src/agent_runner.py`:**
 
 ```python
@@ -350,9 +354,9 @@ Aguarde build + deploy (~3-5 min). Output esperado termina com `Functions in <na
 
 ```powershell
 # Capture URL APIM + subscription key (do Capítulo 06)
-$ApimUrl = az apim show -n apim-helpsphere-staging -g rg-lab-avancado --query gatewayUrl -o tsv
+$ApimUrl = az apim show -n apim-helpsphere-dev -g rg-lab-avancado --query gatewayUrl -o tsv
 $SubKey = az apim subscription show `
-  --service-name apim-helpsphere-staging `
+  --service-name apim-helpsphere-dev `
   --resource-group rg-lab-avancado `
   --sid master `
   --query primaryKey -o tsv
@@ -380,7 +384,7 @@ curl.exe -s -X POST "$ApimUrl/agent/chat" `
 
 **No Portal Azure (verificar metrics chegando — Application Insights):**
 
-1. Buscar `Application Insights` → clicar em `ai-helpsphere-staging`
+1. Buscar `Application Insights` → clicar em `ai-helpsphere-dev` (ou o env que você deployou)
 2. Menu lateral → **Monitoring** → **Logs** → fechar prompt "Welcome"
 3. Cole no editor KQL:
 
@@ -470,7 +474,7 @@ requests
 
 > **Nota pedagógica — `valueSum / valueCount` em histograms:** OpenTelemetry exporta histograms para App Insights com 3 colunas internas: `valueSum`, `valueCount`, `valueMin/Max`. Para média use `valueSum / valueCount`. Para percentil use `percentile()` na expressão. Erro comum: usar `avg(valueSum)` direto — isso te dá média de **somas por bucket**, não média **por request**.
 
-> **Nota pedagógica — KQL save vs ad-hoc:** `Save as query` salva a query **no workspace** (visível por toda equipe), não na sua conta. Em squads reais, você commita queries em `runbook/kql/*.kusto` (versionado em git) e referencia no Capítulo 09 — Runbook eval. Para o lab, salvar no workspace já cumpre o objetivo pedagógico.
+> **Nota pedagógica — KQL save vs ad-hoc:** `Save as query` salva a query **no workspace** (visível por toda equipe), não na sua conta. Em squads reais, você commita queries em `runbook/kql/*.kusto` (versionado em git) como artefato auditável. Para o lab, salvar no workspace já cumpre o objetivo pedagógico.
 
 > **Custo:** R$ 0 (queries KQL contam contra free tier 5 GB/mês ingest, não contra retention nem query execution).
 
@@ -488,7 +492,7 @@ requests
 
 4. **+ Add tile** (canto superior direito) → painel Tile Gallery → escolher **Metrics chart** → **Add**
 5. Tile vazio aparece → clique **Edit** (ícone lápis) → painel direito:
-   - **Resource:** clicar **Select a resource** → `ai-helpsphere-staging`
+   - **Resource:** clicar **Select a resource** → `ai-helpsphere-dev` (ou o env deployado)
    - **Metric Namespace:** `azure.applicationinsights` (custom metrics aparecem no namespace padrão do SDK OTEL)
    - **Metric:** `llm.cost_brl`
    - **Aggregation:** `Sum`
@@ -519,9 +523,17 @@ requests
 
 10. Topo da página → **Save** (disquete) — dashboard fica disponível em todos os browsers do usuário Azure
 
-<!-- screenshot: cap07-passo7.6-dashboard-4-tiles-overview.png -->
+**Validação visual (último checkpoint do capítulo):**
 
-> **Alternativa Workbooks (recomendado em produção real):** Workbooks são templates JSON versionáveis, exportáveis, multi-resource. Use **App Insights → Workbooks → + New** para padrão production-grade — você commita o JSON em `infra/workbooks/helpsphere-ia.workbook.json` e provisiona via Bicep `Microsoft.Insights/workbooks`. Para o lab, dashboards diretos são suficientes (1 tile = 1 click); Workbooks ficam como melhoria do Capítulo 09 — Runbook eval.
+11. Volte para **Application Insights** → recurso `ai-helpsphere-dev` → menu lateral **Monitoring → Logs**
+12. Cole a Query A (Custo BRL por tenant) que você salvou no Passo 7.5
+13. Clique **Run** — confirme que o resultado mostra pelo menos 1 linha com `total_brl > 0` (smoke test do Passo 7.4 gerou tráfego)
+14. Tire screenshot do **Logs blade** rodando a query — esse é o artefato visual de prova que o pipeline Content Safety + App Insights + KQL está end-to-end funcional
+
+<!-- screenshot: cap07-passo7.6-dashboard-4-tiles-overview.png -->
+<!-- screenshot: cap07-passo7.6-logs-blade-cost-query-result.png -->
+
+> **Alternativa Workbooks (recomendado em produção real):** Workbooks são templates JSON versionáveis, exportáveis, multi-resource. Use **App Insights → Workbooks → + New** para padrão production-grade — você commita o JSON em `infra/workbooks/helpsphere-ia.workbook.json` e provisiona via Bicep `Microsoft.Insights/workbooks`. Para o lab, dashboards diretos são suficientes (1 tile = 1 click); Workbooks ficam como evolução opcional.
 
 > **Nota pedagógica — dashboard pessoal vs shared:** Por default, dashboards são **escopados ao seu user**. Para compartilhar com SRE/dev team: **Share** (topo direito) → escolher subscription + RG `rg-shared-dashboards` → publicar. Em prod multi-time, sempre publish em RG dedicado de dashboards (vira recurso ARM como qualquer outro, governável por RBAC).
 
@@ -532,25 +544,25 @@ requests
 ```powershell
 # 1. Confirma Content Safety provisionado e tier F0
 az cognitiveservices account show `
-  -n cs-helpsphere-staging -g rg-lab-avancado `
+  -n cs-helpsphere-dev -g rg-lab-avancado `
   --query "{name:name, kind:kind, sku:sku.name, state:properties.provisioningState}" -o table
-# Esperado: cs-helpsphere-staging | ContentSafety | F0 | Succeeded
+# Esperado: cs-helpsphere-dev | ContentSafety | F0 | Succeeded
 
 # 2. Confirma App Insights workspace-based + daily cap 1 GB
 az monitor app-insights component show `
-  --app ai-helpsphere-staging --resource-group rg-lab-avancado `
+  --app ai-helpsphere-dev --resource-group rg-lab-avancado `
   --query "{kind:kind, retentionInDays:retentionInDays, dailyCap:properties.dailyCap}" -o table
 # Esperado: web | 90 | 1.0 (GB)
 
-# 3. Confirma Function App tem env vars CS_*
+# 3. Confirma Function App tem env vars CS_* e APPLICATIONINSIGHTS_CONNECTION_STRING
 az functionapp config appsettings list `
   --name $FuncName --resource-group rg-lab-avancado `
-  --query "[?starts_with(name, 'CS_') || name == 'SAFETY_BLOCK_THRESHOLD'].{name:name}" -o table
-# Esperado: CS_ENDPOINT, CS_KEY, SAFETY_BLOCK_THRESHOLD
+  --query "[?starts_with(name, 'CS_') || name == 'SAFETY_BLOCK_THRESHOLD' || name == 'APPLICATIONINSIGHTS_CONNECTION_STRING'].{name:name}" -o table
+# Esperado: CS_ENDPOINT, CS_KEY, SAFETY_BLOCK_THRESHOLD, APPLICATIONINSIGHTS_CONNECTION_STRING
 
 # 4. KQL last 15min — custom metrics chegando
 az monitor app-insights query `
-  --app ai-helpsphere-staging `
+  --app ai-helpsphere-dev `
   --analytics-query "customMetrics | where timestamp > ago(15m) | where name startswith 'llm.' | summarize n=sum(valueCount) by name | order by n desc"
 # Esperado: linhas para llm.prompt_tokens, llm.completion_tokens, llm.cost_brl
 ```
@@ -576,6 +588,8 @@ az monitor app-insights query `
 [ ] KQL helpsphere/safety-blocks-by-category-24h salva no workspace
 [ ] KQL helpsphere/error-rate-1h salva no workspace
 [ ] Dashboard helpsphere-ia-dashboard com 4 tiles cravados
+[ ] Logs blade rodou Query A (cost-by-tenant) com resultado total_brl > 0 (validação visual)
+[ ] APPLICATIONINSIGHTS_CONNECTION_STRING confirmado em App Settings (não Instrumentation Key sozinha)
 [ ] App Insights daily cap 1GB confirmado em Bicep
 ```
 
@@ -583,19 +597,29 @@ az monitor app-insights query `
 
 ## Surpresas pedagógicas (capturadas em smoke runs)
 
-- ⚠️ **Custom metrics namespace aparece como `azure.applicationinsights` (não `helpsphere.ia`)** — `meter = metrics.get_meter("helpsphere.ia")` parece que vai criar namespace `helpsphere.ia`, mas o exporter Azure Monitor coloca tudo no namespace padrão `azure.applicationinsights` e a string `helpsphere.ia` vira `meter_name` em customDimensions. **Workaround:** filtrar por `name == "llm.cost_brl"` (não pelo namespace). Custou ~20min no PILOTO `agente-lab/04` smoke run.
+- ⚠️ **Custom metrics namespace aparece como `azure.applicationinsights` (não `helpsphere.ia`)** — `meter = metrics.get_meter("helpsphere.ia")` parece que vai criar namespace `helpsphere.ia`, mas o exporter Azure Monitor coloca tudo no namespace padrão `azure.applicationinsights` e a string `helpsphere.ia` vira `meter_name` em customDimensions. **Workaround:** filtrar por `name == "llm.cost_brl"` (não pelo namespace). Custou ~20min em smoke run inicial.
 
 - ⚠️ **`Metrics` blade demora 15-30 min para popular dropdown — `Logs` (KQL) retorna em 2-3 min** — se você abrir Metrics blade logo após o primeiro request e não ver `llm.cost_brl`, **não é bug, é latência ingest**. **Workaround:** sempre validar primeiro com KQL `customMetrics | where timestamp > ago(5m) | summarize count() by name`. Quando KQL retornar, espera mais 10-25min e Metrics blade puxa.
 
-- ⚠️ **Connection String `APPLICATIONINSIGHTS_CONNECTION_STRING` ausente derruba startup do Function App** — `configure_azure_monitor()` lança `KeyError: 'APPLICATIONINSIGHTS_CONNECTION_STRING'` se a env var não estiver definida e o worker entra em **CrashLoopBackOff** silencioso (Function aparece como `Running` no Portal, mas todos os requests retornam 503). **Workaround:** confirme em **Function App → Configuration → Application settings** que `APPLICATIONINSIGHTS_CONNECTION_STRING` existe (deve ter sido cravado pelo Bicep `app-insights.bicep` via `application_insights.connectionString` output). Se não existe → re-run do `cd-staging.yml`.
+- ⚠️ **Connection String `APPLICATIONINSIGHTS_CONNECTION_STRING` ausente derruba startup do Function App** — `configure_azure_monitor()` lança `KeyError: 'APPLICATIONINSIGHTS_CONNECTION_STRING'` se a env var não estiver definida e o worker entra em **CrashLoopBackOff** silencioso (Function aparece como `Running` no Portal, mas todos os requests retornam 503). **Workaround:** confirme em **Function App → Configuration → Application settings** que `APPLICATIONINSIGHTS_CONNECTION_STRING` existe (deve ter sido cravado pelo Bicep `app-insights.bicep` via `application_insights.connectionString` output). Se não existe → re-rode `az deployment group create` do Capítulo 05.
 
-- ⚠️ **Content Safety F0 retorna HTTP 429 após 5.000 req/dia (UTC reset)** — em load test com >5k requests, F0 começa a 429 e o wrapper cai no **fail-open** (libera). Você vê uma onda de `safety.error` no dashboard mas **zero `safety.hit`**. **Workaround:** ou troque para S0 em `content-safety.bicep` (`sku.name: 'S0'` — ~R$ 0,75/1.000 trans), ou paginate o load test em janelas de 24h. Custou ~30min no smoke run combinado de eval+chaos.
+- ⚠️ **Connection String é obrigatória — Instrumentation Key sozinha é deprecated** — alguns tutoriais Microsoft antigos mostram só `APPINSIGHTS_INSTRUMENTATIONKEY=<guid>`. O SDK OpenTelemetry **ignora** essa var e exige `APPLICATIONINSIGHTS_CONNECTION_STRING` no formato completo (`InstrumentationKey=<guid>;IngestionEndpoint=https://<region>.in.applicationinsights.azure.com/;LiveEndpoint=...`). **Workaround:** sempre copiar a string completa do campo **Connection String** no Overview do recurso — nunca tentar reconstruir manualmente.
+
+- ⚠️ **Content Safety F0 retorna HTTP 429 após 5.000 req/dia (UTC reset)** — em load test com >5k requests, F0 começa a 429 e o wrapper cai no **fail-open** (libera). Você vê uma onda de `safety.error` no dashboard mas **zero `safety.hit`**. **Workaround:** ou troque para S0 em `content-safety.bicep` (`sku.name: 'S0'` — ~R$ 1,00/1.000 trans texto), ou paginate o load test em janelas de 24h. Custou ~30min em smoke run combinado de eval+chaos.
 
 - ⚠️ **`outputType: "FourSeverityLevels"` retorna 0/2/4/6 (não 0-3)** — engenheiros novos em Content Safety assumem que "Four levels" = 0/1/2/3 e setam `SAFETY_BLOCK_THRESHOLD=2` esperando bloquear nível "medium". Na verdade level 2 é "low" e bloqueia tudo (incluindo "olá, bom dia") — false positive de 90%. **Workaround:** thresholds canônicos são **0/2/4/6**; threshold `4` = bloqueia medium+high. Cravar comentário inline no código com a tabela de severities.
 
-- ⚠️ **Daily cap 1 GB no App Insights é "soft cap" — billable continua até reset** — quando atinge 1 GB no dia, App Insights **stops ingesting** (não derruba app). Mas Azure Monitor ainda **bilha o que já entrou**. Se você esquecer cap em produção em modo debug verbose, gasta R$ 50+/mês fácil. **Workaround:** Capítulo 04a já crava `dailyCap: 1` no `app-insights.bicep` + Capítulo 08 crava Azure Policy `audit-app-insights-daily-cap` para flagar workspaces sem cap.
+- ⚠️ **`customDimensions` é coluna dynamic — sem `tostring()` cast a `where` clause quebra silenciosa** — KQL trata `customDimensions["tenant_id"]` como `dynamic`. Sem `extend tenant = tostring(customDimensions["tenant_id"])`, comparações tipo `where tenant == "acme-corp"` retornam **zero rows** sem mensagem de erro — você acha que não tem dados. **Workaround:** sempre `extend X = tostring(customDimensions["X"])` antes de filtrar/agrupar. Vale para qualquer dimension (model, feature, mode, severity — esse último usa `toint()`).
 
-- ⚠️ **`requests.post()` com timeout=2.0s ainda passa de 200ms p95** — Content Safety latência típica 50-150ms p50 e 300-500ms p95. Timeout 2s parece generoso, mas em incidente Cognitive Services regional, pode passar p99 de 1.5s. **Workaround:** monitorar `safety.error` rate e correlacionar com Service Health `Cognitive Services` regional. Se `safety.error rate > 1%` por 5min → degradar para fail-closed temporariamente via App Setting `SAFETY_FAIL_MODE=closed` (variante que pode ser cravada como melhoria do Capítulo 09).
+- ⚠️ **`TrackMetric()` legacy vs OpenTelemetry SDK — não misture** — alguns code samples antigos da Microsoft usam `TelemetryClient.TrackMetric()` (SDK legacy `applicationinsights`). Esses metrics aparecem em **`customMetrics`** table mas com **schema diferente** (valueSum/valueCount não calculados igual). Se você mistura `TrackMetric()` e OpenTelemetry no mesmo app, queries KQL agregadas dão números errados. **Workaround:** padronize 100% em OpenTelemetry (`meter.create_histogram()`/`create_counter()`) e remova qualquer import `applicationinsights` legado do `requirements.txt`.
+
+- ⚠️ **Token counting precisa de `tiktoken` truncation a 8000 tokens — `usage.prompt_tokens` reportado pode estourar `max_context_length`** — Azure OpenAI retorna `usage.prompt_tokens` exato no response, mas se você **emite a métrica ANTES** da call (pré-flight estimation) ou se concatena `system_message + user_message + RAG context` sem contar tokens, pode passar do contexto e a call falha com HTTP 400 `BadRequest: context_length_exceeded`. **Workaround:** instale `tiktoken` no `requirements.txt`, use `encoding = tiktoken.encoding_for_model("gpt-4o-mini")` e trunque o RAG context a `8000 tokens` antes do append (mesma técnica usada em indexação RAG). A métrica `llm.prompt_tokens` deve sempre vir do `usage.prompt_tokens` pós-call, não de estimativa local.
+
+- ⚠️ **Daily cap 1 GB no App Insights é "soft cap" — billable continua até reset** — quando atinge 1 GB no dia, App Insights **stops ingesting** (não derruba app). Mas Azure Monitor ainda **bilha o que já entrou**. Se você esquecer cap em produção em modo debug verbose, gasta R$ 50+/mês fácil (ingest ~R$ 13/GB acima do free tier). **Workaround:** o `app-insights.bicep` já crava `dailyCap: 1` + Capítulo 08 crava Azure Policy `audit-app-insights-daily-cap` para flagar workspaces sem cap.
+
+- ⚠️ **Workspace-based vs Classic App Insights — alguns guides Microsoft ainda mostram Classic (deprecated)** — Classic é o modelo pré-2021 onde App Insights tinha storage próprio. Workspace-based (atual) escreve em Log Analytics Workspace dedicado. Alguns tutoriais Microsoft ainda mostram `Microsoft.Insights/components` sem `workspaceResourceId` (resulta em Classic) — isso vai deprecation EOL fevereiro 2027. **Workaround:** o `app-insights.bicep` deste lab já força workspace-based via property `workspaceResourceId: logAnalyticsWorkspace.id`. Confirme em validação end-to-end (`kind=web` + `workspaceId` não-vazio).
+
+- ⚠️ **`requests.post()` com timeout=2.0s ainda passa de 200ms p95** — Content Safety latência típica 50-150ms p50 e 300-500ms p95. Timeout 2s parece generoso, mas em incidente Cognitive Services regional, pode passar p99 de 1.5s. **Workaround:** monitorar `safety.error` rate e correlacionar com Service Health `Cognitive Services` regional. Se `safety.error rate > 1%` por 5min → degradar para fail-closed temporariamente via App Setting `SAFETY_FAIL_MODE=closed`.
 
 ---
 

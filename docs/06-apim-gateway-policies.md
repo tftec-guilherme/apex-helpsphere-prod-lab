@@ -1,37 +1,35 @@
 # Capítulo 06 — APIM gateway + policies
 
-> **Objetivo:** aguardar APIM Developer ficar `Online` no `rg-lab-avancado`, importar a Function App `func-helpsphere-agent` (ou mock) como API gerenciada, aplicar a política inbound canônica (validate-jwt + rate-limit-by-key + quota-by-key + CORS + audit `<log-to-eventhub>`), e validar via **Test blade** + `curl` que sem token retorna **401** e com token válido o request chega ao backend — deixando o gateway pronto para o pipeline `cd-staging.yml` do Capítulo 05.
+> **Objetivo:** aguardar APIM Developer ficar `Online` no `rg-lab-avancado`, importar uma API REST de negócio (ex.: backend HelpSphere) como API gerenciada, aplicar a política inbound canônica (validate-jwt + rate-limit-by-key + quota-by-key + CORS + audit `<log-to-eventhub>`), e validar via **Test blade** + `curl.exe` que sem token retorna **401** e com token válido o request chega ao backend.
 >
-> **Tempo:** 60-90 min (não inclui ~30-45 min de provisão APIM já em background desde Capítulo 05 Passo 5.6 — siga em paralelo se ainda estiver `Activating`)
->
-> **Status:** `v0.2.0-portal` ⚠️ EXPANDIDO (era `v0.1.0-init` semi-expandido) — derivado de `Lab_Avancado_IA_Producao_Guia_Portal.md` Parte 4 (Passos 4.1-4.4)
+> **Tempo:** 60-90 min (não inclui ~30-45 min de provisão APIM já em background desde Capítulo 05 — siga em paralelo se ainda estiver `Activating`)
 
 ---
 
-## DISCLAIMER R4 (HIGH — bloqueante de billing) — APIM Developer R$ 250/mês ligado
+## 🚨 ATENÇÃO BILLING — APIM Developer cobra ~R$ 240/mês LIGADO (sem auto-pause)
 
-APIM SKU **Developer** **não tem auto-pause**. O recurso é cobrado **mesmo sem tráfego**, na taxa fixa de uma instância dedicada — diferente da Consumption SKU (pay-per-call) e diferente de App Services free tier. Se você esquece o RG ligado por 1 mês, queima R$ 250 sem rodar 1 request.
+APIM SKU **Developer** **não tem auto-pause**. O recurso é cobrado **mesmo sem tráfego**, na taxa fixa de uma instância dedicada — diferente da Consumption SKU (pay-per-call) e diferente de App Services free tier. Se você esquece o RG ligado por 1 mês, queima ~R$ 240 sem rodar 1 request.
 
 ### TL;DR (3 fatos que você precisa saber agora)
 
-1. **Custo:** ~R$ 250/mês (~R$ 8/dia) ligado, R$ 0 deletado. Não há tier intermediário.
+1. **Custo:** ~R$ 240/mês (~R$ 8/dia) ligado, R$ 0 deletado. Não há tier intermediário.
 2. **Provisioning:** primeiro deploy demora **30-45 min**. Não é erro, é o SKU.
-3. **Cleanup obrigatório no mesmo dia da gravação** — `az group delete --name rg-lab-avancado --yes --no-wait` zera tudo. Detalhes em [Capítulo 10 — Cleanup](./10-cleanup.md).
+3. **Cleanup obrigatório no mesmo dia da prática** — `az group delete --name rg-lab-avancado --yes --no-wait` zera tudo. Detalhes em [Capítulo 10 — Cleanup](./10-cleanup.md).
 
 ### Custo absoluto comparado
 
 | SKU | Custo R$ ligado | Custo R$ por chamada | Adequação ao lab |
 |---|---|---|---|
-| **Developer** (default lab) | **R$ 250/mês** (~R$ 8/dia) | incluído | ✅ Pedagógico — todas features (named values, products, JWT) |
-| **Consumption** | R$ 0 parado | ~R$ 0,50 / 1.000 chamadas | ⚠️ Só callout, não walkthrough completo (limitações abaixo) |
+| **Developer** (default lab) | **🚨 ~R$ 240/mês** (~R$ 8/dia) | incluído | ✅ Pedagógico — todas features (named values, products, JWT) |
+| **Consumption** | R$ 0 parado | ~R$ 0,30 / 1M chamadas | ⚠️ Sem IP outbound estático — não cabe enterprise; só callout |
 | **Premium** | ~R$ 13.000/mês | incluído | ❌ Fora de escopo — multi-region, VNet, scale 1-10 unidades |
 
-> **Por que Developer e não Consumption no lab?** Developer entrega o **mesmo XML policy engine**, named values com Key Vault, products com subscription keys e Test blade visualmente equivalente ao Premium — único limite real é SLA (sem SLA na Developer). Consumption pay-per-call é mais barato, mas perde features pedagogicamente importantes (sem custom domain HTTPS, sem named values com Key Vault references diretas, cold-start de ~2s na primeira chamada após idle, sem APIM-internal cache). Decisão prof: **APIM sempre Developer tier na D06**.
+> **Por que Developer e não Consumption no lab?** Developer entrega o **mesmo XML policy engine**, named values com Key Vault, products com subscription keys e Test blade visualmente equivalente ao Premium — único limite real é SLA (sem SLA na Developer). Consumption pay-per-call é mais barato, mas **não fornece outbound IP estático** (inviável para integrações enterprise que dependem de firewall allowlist), além de perder features pedagogicamente importantes: sem custom domain HTTPS, sem named values com Key Vault references diretas, cold-start de ~2s na primeira chamada após idle, sem APIM-internal cache. **APIM sempre Developer tier neste lab.**
 
 ### Cleanup OBRIGATÓRIO (cravar no calendário)
 
 ```powershell
-# AO FIM da gravação ou da prática, OBRIGATÓRIO rodar:
+# AO FIM da prática, OBRIGATÓRIO rodar:
 az group delete --name rg-lab-avancado --yes --no-wait
 
 # Confirme em ~5 min (deletion async):
@@ -39,11 +37,13 @@ az group exists --name rg-lab-avancado
 # Esperado: false
 ```
 
+> **Alternativa Linux/Mac/WSL (bash):** comandos `az` são idênticos.
+
 Se você esquecer, abra **Cost Management + Billing** no Portal Azure → **Cost analysis** → filtro `Service name = API Management` para confirmar que o burn parou.
 
 ### Alternativa Consumption (callout — sem walkthrough completo)
 
-Se sua sub não tolera R$ 250/mês fixos (ex.: aluno em PAYG pessoal apertado), edite `infra/envs/dev.parameters.json` (gerado no Capítulo 04):
+Se sua sub não tolera ~R$ 240/mês fixos (ex.: PAYG pessoal apertado), edite `infra/envs/dev.parameters.json` (gerado no Capítulo 04):
 
 ```json
 {
@@ -51,10 +51,11 @@ Se sua sub não tolera R$ 250/mês fixos (ex.: aluno em PAYG pessoal apertado), 
 }
 ```
 
-Re-deploy via `cd-staging.yml`. **Atenção:** vários Passos abaixo assumem Developer — Test blade funciona igual, mas Passo 4.3 (inbound policy) tem **3 limitações conhecidas em Consumption**:
+Re-deploy via `az deployment group create` (Capítulo 05). **Atenção:** vários Passos abaixo assumem Developer — Test blade funciona igual, mas o Passo de inbound policy tem **3 limitações conhecidas em Consumption**:
 
 - ❌ `<log-to-eventhub>` exige logger registrado — `app-insights-logger` precisa ser criado via CLI (`az apim logger create`) antes de salvar policy
 - ❌ Named values com **Key Vault references diretas** não são suportados — você precisa hardcodar `{tenant-id}` ou usar named value tipo `Plain`
+- ❌ **Sem outbound IP estático** — integrações que precisam allowlist no firewall do backend não funcionam
 - ❌ Cold-start de ~2s na primeira chamada após 20 min idle — visivelmente piora UX em demo ao vivo
 
 **Para o lab pedagógico canônico, mantenha Developer.** Use Consumption só se o aluno tem restrição financeira explícita.
@@ -63,14 +64,26 @@ Re-deploy via `cd-staging.yml`. **Atenção:** vários Passos abaixo assumem Dev
 
 ## Pré-requisitos
 
-- ✅ Capítulo 04 concluído — Bicep `infra/main.bicep` + módulo `infra/modules/apim.bicep` validados via `az bicep build` + `what-if` em PR
-- ✅ Capítulo 05 concluído — workflow `cd-staging.yml` rodou ao menos 1x e disparou `az deployment group create` que provisionou `apim-helpsphere-staging` no `rg-lab-avancado` (mesmo que o status ainda esteja `Activating`)
-- ✅ APIM **mínimo 30 min** desde o início do `cd-staging.yml` rodando — caso contrário, espere antes de tentar Passo 4.1
-- ✅ `az` CLI logado na mesma sub do Capítulo 03 (`az account show --query id -o tsv` deve bater com `AZURE_SUBSCRIPTION_ID` cravado em GitHub Secrets)
+- ✅ Capítulo 04 concluído — Bicep `infra/main.bicep` + módulo `infra/modules/apim.bicep` validados via `az bicep build` + `what-if`
+- ✅ Capítulo 05 concluído — `az deployment group create` rodou ao menos 1x e provisionou `apim-helpsphere-staging` no `rg-lab-avancado` (mesmo que o status ainda esteja `Activating`)
+- ✅ APIM **mínimo 30 min** desde o início do `az deployment group create` — caso contrário, espere antes de tentar Passo 4.1
+- ✅ `az` CLI logado na sub correta (`az account show --query id -o tsv` confirma)
 - ✅ Tenant ID em mãos (`az account show --query tenantId -o tsv`) — vai cravar no policy XML do Passo 4.3
-- ✅ Decisão tomada sobre Function App backend: **(a)** mock via `func-mock.bicep`, **(b)** Lab Final reprovisionado, ou **(c)** skip Passo 4.2 como exercício conceitual (ver detalhe no Passo 4.2)
+- ✅ PowerShell 7+ no Windows (ou bash em Linux/Mac/WSL) — comandos abaixo são PowerShell-first
+- ✅ Decisão tomada sobre backend da API: **(a)** mock via `func-mock.bicep`, **(b)** API REST existente em `rg-helpsphere-saas` (cross-RG), ou **(c)** skip Passo 4.2 como exercício conceitual (ver detalhe no Passo 4.2)
 
-> **Atenção gotcha — APIM ainda `Activating` quando você abrir o capítulo:** se o `cd-staging.yml` rodou há menos de ~30 min, o recurso provavelmente ainda está em `Activating`. Você consegue navegar para o blade, mas **não consegue salvar policies nem importar APIs** — Portal mostra erro `OperationNotAllowed: Service is not yet active`. Workaround: deixe Capítulo 06 aberto, comece [Capítulo 07 — Content Safety + App Insights](./07-content-safety-app-insights.md) em paralelo (Content Safety provisiona em ~3 min). Volte aqui quando o badge mudar para 🟢 `Online`.
+> **Nota pedagógica — APIM gateway é para APIs de negócio, NÃO para RAG interno:** A Function App RAG (provisionada no Lab Intermediário) é chamada DIRETO pelo agente SDK via HTTP, sem passar pelo APIM Gateway. APIM neste Lab Avançado é reservado para APIs de negócio (HelpSphere REST API ou similar consumida por frontends/parceiros externos), não para tools internos do agente. Em produção real, você pode reposicionar RAG atrás de APIM para ganhar rate limiting, caching e telemetry centralizada — fica como evolução opcional.
+
+> **Nota pedagógica — backend cross-RG (`rg-helpsphere-saas`):** se o backend da API que você vai expor (ex.: HelpSphere REST) já existe em outro RG (típico: `rg-helpsphere-saas` em westus3, separado da infra de gateway em `rg-lab-avancado/eastus2`), o APIM aceita backend URL completo (ex.: `https://app-helpsphere-prod.azurewebsites.net`) sem precisar mover o backend. Cross-region latência: ~50-80ms adicionais entre regiões US — aceitável para lab, em prod real prefira mesma região.
+
+> **Atenção gotcha — APIM ainda `Activating` quando você abrir o capítulo:** se o `az deployment group create` rodou há menos de ~30 min, o recurso provavelmente ainda está em `Activating`. Você consegue navegar para o blade, mas **não consegue salvar policies nem importar APIs** — Portal mostra erro `OperationNotAllowed: Service is not yet active`. Workaround: deixe Capítulo 06 aberto, comece [Capítulo 07 — Content Safety + App Insights](./07-content-safety-app-insights.md) em paralelo (Content Safety provisiona em ~3 min). Volte aqui quando o badge mudar para 🟢 `Online`.
+
+> **Placeholders deste capítulo:** ao longo dos próximos Passos você verá referências a valores que dependem do seu ambiente:
+>
+> - `APIM_GATEWAY_URL` → URL do Gateway capturada no Passo 4.1 (ex.: `https://apim-helpsphere-staging.azure-api.net`)
+> - `BACKEND_URL` → URL HTTPS do backend que o APIM vai roteado (ex.: Function App `func-helpsphere-agent` ou App Service em `rg-helpsphere-saas`)
+> - `JWT_KEY` / `tenant-id` → tenant ID do Entra capturado via `az account show --query tenantId -o tsv` (cravado no named value `tenant-id` do Passo 4.3.a)
+> - `<seu-username>` → fallback de uniqueness para `apim-helpsphere-staging-<seu-username>` se o nome global colidir
 
 ---
 
@@ -121,7 +134,7 @@ Re-deploy via `cd-staging.yml`. **Atenção:** vários Passos abaixo assumem Dev
 >
 > **Linux/Mac/WSL:** use `until [ "$(...)" = "Succeeded" ]; do echo ...; sleep 60; done` com `$(date '+%H:%M:%S')`.
 
-> **Custo:** R$ 250/mês ligado independentemente de você estar olhando ou não — o relógio começou no momento do `az deployment group create` do Capítulo 05. Se cleanup acontecer no mesmo dia: ~R$ 8 absolutos (8 horas × R$ 1/h aproximado).
+> **Custo:** ~R$ 240/mês ligado independentemente de você estar olhando ou não — o relógio começou no momento do `az deployment group create` do Capítulo 05. Se cleanup acontecer no mesmo dia: ~R$ 8 absolutos (8 horas × R$ 1/h aproximado).
 
 > **Nota pedagógica — por que 30-45 min e não 30 segundos?** APIM Developer/Premium provisiona uma **VM dedicada de gateway** + scale set + cluster Cassandra interno + integração com Entra para mTLS + DNS-as-a-service público. Não é container start. Compare com APIM Consumption (~5 min) que é shared multi-tenant. Pattern: **infra dedicada = cold start lento, hot performance previsível**.
 
@@ -133,9 +146,9 @@ Re-deploy via `cd-staging.yml`. **Atenção:** vários Passos abaixo assumem Dev
 
 ## Passo 4.2 — Importar API `helpsphere-agent` a partir da Function App
 
-> **⚠️ Decisão de backend obrigatória antes de seguir:** este Passo importa a Function App `func-helpsphere-agent` que foi criada no **Lab Final** (companion repo `apex-helpsphere-agente-lab`). Se você fez Lab Final em sequência e rodou `az group delete` no fim (cleanup obrigatório do Lab Final), **este recurso não existe mais nesta sub**. Você tem 3 opções pedagogicamente válidas:
+> **⚠️ Decisão de backend obrigatória antes de seguir:** este Passo importa a Function App `func-helpsphere-agent` como backend de exemplo. Se a Function não existe na sua sub (você não tem um lab anterior provisionado), você tem 3 opções pedagogicamente válidas:
 >
-> **(a) Re-provisionar mock rapidamente via Bicep `func-mock.bicep` (RECOMENDADO, ~3 min):** placeholder Function App com endpoint `/api/agent/chat` retornando JSON 200 estático. Suficiente pra validar import APIM + policies inbound (JWT, rate-limit, CORS) sem 502 do backend. Bicep fornecido no monorepo `azure-retail` em `Disciplina_06_*/03_Aplicacoes/lab-avancado/func-mock/`. Deploy:
+> **(a) Re-provisionar mock rapidamente via Bicep `func-mock.bicep` (RECOMENDADO, ~3 min):** placeholder Function App com endpoint `/api/agent/chat` retornando JSON 200 estático. Suficiente pra validar import APIM + policies inbound (JWT, rate-limit, CORS) sem 502 do backend. Deploy:
 >
 > ```powershell
 > az deployment group create `
@@ -145,13 +158,13 @@ Re-deploy via `cd-staging.yml`. **Atenção:** vários Passos abaixo assumem Dev
 > # Depois: func azure functionapp publish func-helpsphere-agent --python  (~2min)
 > ```
 >
-> **Linux/Mac/WSL:** troque `` ` `` (backtick) por `\` para continuação de linha.
+> **Linux/Mac/WSL (bash):** troque `` ` `` (backtick) por `\` para continuação de linha.
 >
-> **(b) Re-provisionar Lab Final Parte 3 só pra esse Passo (~20 min):** retoma do Lab Final apenas o Function App + Foundry agent registration. Útil se você quer testar APIM + Content Safety + Foundry real end-to-end. Mais lento, mais caro (~R$ 5 a mais), mais realista pedagogicamente.
+> **(b) Reusar backend existente em `rg-helpsphere-saas` (cross-RG, ~0 min):** se você já tem o backend HelpSphere REST em outra resource group (ex.: stack SaaS em `rg-helpsphere-saas/westus3`), passe a URL absoluta dele no Bicep do APIM (`backendUrl = "https://app-helpsphere-prod.azurewebsites.net"`). APIM aceita backend cross-RG e cross-region — a única coisa que muda é latência (~50-80ms entre US regions).
 >
-> **(c) Skip Passo 4.2 e marcar como exercício conceitual (~0 min):** se está com pressa de gravação ou sua sub está sem quota, pula a parte de importar a API e segue pro Passo 4.3 explicando "em produção, o API import seria assim" — vale como demo arquitetural, mas você perde o Test blade ao vivo.
+> **(c) Skip Passo 4.2 e marcar como exercício conceitual (~0 min):** se está com pressa ou sua sub está sem quota, pula a parte de importar a API e segue pro Passo 4.3 explicando "em produção, o API import seria assim" — vale como demo arquitetural, mas você perde o Test blade ao vivo.
 >
-> **Recomendação default da disciplina:** opção **(a)** — mock rápido, baixo custo, valida toda a camada APIM sem depender de Foundry agent rodando.
+> **Recomendação default:** opção **(a)** — mock rápido, baixo custo, valida toda a camada APIM sem depender de outro stack rodando.
 
 **No Portal Azure (APIM → importar API a partir da Function App):**
 
@@ -164,7 +177,7 @@ Re-deploy via `cd-staging.yml`. **Atenção:** vários Passos abaixo assumem Dev
    - **Name:** `helpsphere-agent` (slug — vira parte da URL)
    - **API URL suffix:** `agent` (vira `https://apim-helpsphere-staging.azure-api.net/agent`)
    - **Products:** marque ☑ `Unlimited` (default — built-in product sem rate limit, vamos sobrescrever via policy)
-   - **Version this API?:** **desmarcado** para o lab (versionamento de API é avançado, sai do escopo Bloco 6)
+   - **Version this API?:** **desmarcado** para o lab (versionamento de API é tópico avançado, fora do escopo deste capítulo)
 6. Clique **Create**
 7. Aguardar ~10-20s — operações da Function App aparecem listadas na coluna esquerda (ex.: `chat`, possivelmente `escalate` ou `health`)
 
@@ -479,12 +492,17 @@ curl.exe -i -X POST "https://apim-helpsphere-staging.azure-api.net/agent/api/age
 
 ## Surpresas pedagógicas (capturadas em smoke runs)
 
+- ⚠️ **APIM Developer provisiona em ~30-45 min — abra outro terminal e faça caps em paralelo** — é o SKU dedicado, não cold-start de container. Não trave em frente da tela: enquanto APIM está `Activating`, comece [Capítulo 07 — Content Safety + App Insights](./07-content-safety-app-insights.md) (Content Safety provisiona em ~3 min). Voltando aqui quando o badge mudar para 🟢 `Online`. Anti-padrão: ficar olhando o Portal por 45 min sem progredir nos outros capítulos.
 - ⚠️ **`{tenant-id}` (1 chave) em vez de `{{tenant-id}}` (2 chaves) na policy** — APIM trata 1 chave como literal e o `<openid-config url>` vira `https://login.microsoftonline.com/{tenant-id}/v2.0/...` (404). JWT validation passa silenciosamente com `OpenIdConnectConfiguration retrieved is null`, então requests 200 mesmo sem token. Anti-pattern grave: **gateway aberto sem você notar**. Workaround: sempre `{{...}}` para named values, validar com Test blade sem token (deve dar 401, não 200).
+- ⚠️ **`<rate-limit-by-key>` SEM `counter-key` literal aplica throttle global, não por usuário** — se você cravar `<rate-limit-by-key calls="100" renewal-period="60" />` sem o atributo `counter-key="@(context.Subscription.Id)"` (ou `Claims["oid"]`), APIM **trata como `<rate-limit>` global** silenciosamente. 1 usuário agressivo zera o bucket de 100 chamadas/min pra todos. Workaround: SEMPRE explicite `counter-key` com uma expressão policy (`@(...)`) ou string literal — sem essa, a policy degrada para global sem warning.
+- ⚠️ **`<validate-jwt>` com `<openid-config url>` exige endpoint HTTPS discoverable** — Entra ID free/standard expõe `https://login.microsoftonline.com/{tenant}/v2.0/.well-known/openid-configuration` automaticamente, mas se você apontar para um **tenant custom dev** (B2C, ADFS on-prem, IdP self-hosted), a URL precisa: (1) ser HTTPS válida com cert público, (2) retornar JSON com `jwks_uri` discoverable, (3) responder em <5s (APIM faz cache 1h). Se o `openid-config` falhar, JWT validation cai pra `OpenIdConnectConfiguration retrieved is null` (mesmo cenário do gotcha acima). Workaround: teste a URL com `curl.exe https://login.microsoftonline.com/{tenant}/v2.0/.well-known/openid-configuration` antes de cravar na policy.
+- ⚠️ **APIM hostname custom (CNAME) requer cert TLS — Let's Encrypt manual ou Azure managed cert** — por default, APIM expõe `https://apim-helpsphere-staging.azure-api.net` com cert wildcard `*.azure-api.net` (Microsoft-managed). Se você quer hostname próprio (`api.helpsphere.com`), cravar CNAME para `apim-helpsphere-staging.azure-api.net` **não basta** — APIM rejeita TLS handshake porque o cert não cobre o domain custom. Opções: (a) `az apim custom-domain create` apontando para cert do Key Vault (Let's Encrypt renovado manualmente ou cert pago), (b) Azure DNS managed cert (preview, free, só funciona se o domínio é Azure DNS zone). Workaround para o lab: **fique no hostname `*.azure-api.net` default** — custom domain é evolução pós-lab.
+- ⚠️ **Subscription key vs OAuth Bearer — qual usar quando?** APIM Developer aceita **ambos por default**: `Ocp-Apim-Subscription-Key` (gateway-level, identifica o **app cliente**) E `Authorization: Bearer <jwt>` (user-level, identifica o **usuário**). Pattern produção: **subscription key obrigatória** + **JWT obrigatório** = defesa em profundidade. Pattern dev/lab: subscription-key suficiente para smoke rápido. Anti-pattern: produção sem subscription-key porque "JWT já valida" — você perde a camada de revogação no APIM (revogar uma subscription é 1 click; revogar JWT exige short-lived tokens + caching).
 - ⚠️ **`Logger 'app-insights-logger' not found` ao salvar policy** — você ainda não criou o APIM logger (vai criar Capítulo 07). Workaround: comente `<log-to-eventhub>` inteiro com `<!-- ... -->`, salve, descomente após Capítulo 07. Não tenta criar o logger antes de App Insights existir.
 - ⚠️ **APIM ainda `Activating` quando você abre Passo 4.2** — Portal abre o blade, mas Save de qualquer coisa retorna `OperationNotAllowed: Service is not yet active`. Workaround: aguarde badge mudar para 🟢 `Online` no Overview · em paralelo, comece Capítulo 07 (Content Safety provisiona em ~3 min).
-- ⚠️ **`AADSTS500011: The resource principal named api://helpsphere-ia was not found`** ao tentar `az account get-access-token --resource api://helpsphere-ia` — significa que o **App Registration** com Application ID URI `api://helpsphere-ia` ainda não foi criado no Entra. Em produção real, você cria isso junto com a Function App. No lab, depende de você ter feito Lab Final (criou o App Registration) ou criar mock manualmente: `az ad app create --display-name helpsphere-ia --identifier-uris api://helpsphere-ia`.
+- ⚠️ **`AADSTS500011: The resource principal named api://helpsphere-ia was not found`** ao tentar `az account get-access-token --resource api://helpsphere-ia` — significa que o **App Registration** com Application ID URI `api://helpsphere-ia` ainda não foi criado no Entra. Workaround: criar mock manualmente: `az ad app create --display-name helpsphere-ia --identifier-uris api://helpsphere-ia`.
 - ⚠️ **CORS preflight OPTIONS retornando 401** — frontend Angular/React faz `OPTIONS` antes de POST e o `<validate-jwt>` bloqueia OPTIONS porque preflight não carrega JWT. Workaround: a policy oficial já tem `<cors>` que **intercepta OPTIONS antes do `<validate-jwt>` chegar** (porque `<base />` da hierarquia inclui CORS handling). Se você reordenar e colocar `<validate-jwt>` antes de `<cors>`, quebra preflight. Pattern: **CORS sempre antes de auth** na ordem inbound.
-- ⚠️ **Subscription key vaza no log de `curl -v`** — `Ocp-Apim-Subscription-Key` aparece em texto plano em logs verbose. Em produção, `curl --no-progress-meter -s` ou redirecione stderr. Em CI workflow GitHub, use `${{ secrets.APIM_KEY }}` (não `${{ vars.APIM_KEY }}`) para mascarar automaticamente.
+- ⚠️ **Subscription key vaza no log de `curl.exe -v`** — `Ocp-Apim-Subscription-Key` aparece em texto plano em logs verbose. Em produção, `curl.exe --no-progress-meter -s` ou redirecione stderr. Em pipelines CI, sempre passe key como secret (`${{ secrets.APIM_KEY }}` no GitHub Actions, variável segura no Azure DevOps) para mascarar automaticamente no log.
 - ⚠️ **Loop de 105 chamadas atinge 429 antes de 101** — se você abriu múltiplas sessões `az` ou outro lab usa o mesmo `oid` no token (ex.: você é admin global de várias subs), o counter `Claims["oid"]` já tinha contagem prévia. Workaround: aguarde 60s (renewal-period) entre testes, ou use uma conta de teste dedicada.
 
 ---

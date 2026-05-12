@@ -4,7 +4,7 @@
 >
 > **Tempo:** 60-75 min (não inclui ~15-30 min de latência ingest do Cost Management antes do primeiro ponto aparecer)
 >
-> **Status:** `v0.2.0-portal` ⚠️ EXPANDIDO (era `v0.1.0-init` outline) — derivado de `Lab_Avancado_IA_Producao_Guia_Portal.md` Parte 6 (Passos 6.1-6.6) **com adaptação:** o módulo `policy.bicep` cravado no Capítulo 04a usa **3 built-in policies** Azure (allowed-locations + require-tag + cosmos-deny-public) em vez das 3 custom policies do guia canônico. Equivalentes pedagogicamente, sem custo de manutenção.
+> **Adaptação:** o módulo `policy.bicep` cravado no Capítulo 04a usa **3 built-in policies** Azure (allowed-locations + require-tag + cosmos-deny-public) em vez de 3 custom policies. Equivalentes pedagogicamente, sem custo de manutenção. Circuit-breaker (Passo 8.8) usa **workflow n8n cross-repo** reusando o `ca-n8n-helpsphere` provisionado no Lab Final cap 07 — substitui Logic App por custo zero e flexibilidade visual.
 
 ---
 
@@ -16,6 +16,7 @@
 - ✅ Capítulo 07 concluído — Application Insights `ai-helpsphere-staging` ingerindo telemetria (vai aparecer em Cost breakdown ainda que dentro do free tier)
 - ✅ Permissão **Cost Management Contributor** ou **Contributor** no escopo da subscription (Budget é subscription-scoped mesmo quando filtra por RG)
 - ✅ `az` CLI logado e capaz de listar policy assignments (`az policy assignment list` não retorna `AuthorizationFailed`)
+- ✅ **n8n ACA provisionado em outro Lab** (Lab Final cap 07 — `ca-n8n-helpsphere` em `rg-lab-final`) — você precisa do `$env:N8N_URL` capturado lá. Se ainda não fez aquele Lab, faça antes deste cap **ou** pule a seção 8.8 (circuit-breaker) e use apenas Action Group com email do Passo 8.5/8.6.
 
 > **Atenção custo escondido:** Azure Policy é **gratuito** (assignments + compliance state evaluation são free). Cost Management Budget alerts são **gratuitos** (não há fee por alert disparado). Cost Analysis é **gratuito**. Action Group cobra **R$ 0,001 por notificação SMS/voice**, mas **email é gratuito** — usamos só email no lab. Resumo: **Capítulo 08 inteiro é R$ 0** desde que você não habilite SMS/voice/Push.
 
@@ -34,9 +35,9 @@
 | **Action Group** | `ag-helpsphere-ia-alerts` 2 emails (ops + cfo) | Monitor → Alerts → Action groups | R$ 0 (email free) |
 | **Dashboard** | Cost Analysis custom view com 3 breakdowns | Cost Management → Cost Analysis → saved view | R$ 0 |
 
-> **Nota pedagógica — por que 3 built-in policies e não 3 custom?** O guia canônico (`Lab_Avancado_IA_Producao_Guia_Portal.md` Parte 6) usa custom policies (`helpsphere-model-allowlist`, `helpsphere-region-lock`, `helpsphere-cost-center-tag-required`) que exigem `targetScope = 'subscription'` no Bicep + role assignment `Resource Policy Contributor` no UAA. Em sub `live.com` VSE com **ABAC condition**, isso falha (R6 disclaimer). Built-in policies da Azure são RG-scoped, sem custom policy definition para autor — funciona em qualquer sub, inclusive PAYG pessoal apertada. Trade-off pedagógico: perde-se a parte "definir custom rule JSON" mas ganha-se "funciona em qualquer aluno". Decisão prof: **built-in no companion, custom só no guia canônico**.
+> **Nota pedagógica — por que 3 built-in policies e não 3 custom?** Custom policies (`helpsphere-model-allowlist`, `helpsphere-region-lock`, `helpsphere-cost-center-tag-required`) exigem `targetScope = 'subscription'` no Bicep + role assignment `Resource Policy Contributor` no UAA. Em sub `live.com` VSE com **ABAC condition**, isso falha. Built-in policies da Azure são RG-scoped, sem custom policy definition para autor — funciona em qualquer sub, inclusive PAYG pessoal apertada. Trade-off: perde-se a parte "definir custom rule JSON" mas ganha-se "funciona em qualquer ambiente do aluno".
 
-> **Nota pedagógica — por que `R$ 200/mês` de budget e não `R$ 50` ou `R$ 500`?** APIM Developer ligado 1 mês inteiro = ~R$ 250. Se você não fizer cleanup no mesmo dia (R4 disclaimer cap 06), 1 mês de esquecimento = R$ 250 sozinho. Setting `R$ 200` força alerta **antes** de você atingir o custo do APIM ligado o mês inteiro — ou seja, alerta **funciona como auto-cleanup reminder**. Em produção real, o budget reflete OPEX planejado da feature; aqui ele reflete "burn pedagogicamente aceitável".
+> **Nota pedagógica — por que `R$ 200/mês` de budget e não `R$ 50` ou `R$ 500`?** APIM Developer ligado 1 mês inteiro = ~R$ 250. Se você não fizer cleanup no mesmo dia (lembrete forte do Capítulo 06), 1 mês de esquecimento = R$ 250 sozinho. Setting `R$ 200` força alerta **antes** de você atingir o custo do APIM ligado o mês inteiro — ou seja, alerta **funciona como auto-cleanup reminder**. Em produção real, o budget reflete OPEX planejado da feature; aqui ele reflete "burn pedagogicamente aceitável".
 
 ---
 
@@ -267,7 +268,7 @@ Action Group é o **fan-out hub** dos alerts. Mesma config de notification reuti
 5. **+ Add notification** novamente:
    - **Name:** `cfo-email`
    - **Email:** `cfo@apex.com.br`
-6. Tab **Actions** → deixe vazio (sem webhook neste capítulo — Logic App circuit-breaker fica em v0.3.0, ver callout abaixo)
+6. Tab **Actions** → deixe vazio agora (o webhook do circuit-breaker n8n será adicionado no Passo 8.8 — `+ Add notification` tipo `Webhook` apontando para o n8n cross-repo)
 7. **Review + create** → **Create**
 
 <!-- screenshot: cap08-passo8.5-action-group-created.png -->
@@ -293,7 +294,7 @@ Action Group é o **fan-out hub** dos alerts. Mesma config de notification reuti
 
 ## Passo 8.6 — Linkar Action Group ao Budget threshold 100%
 
-Voltamos ao Budget para conectar o Action Group ao threshold de 100% Forecasted. Isso permite que, no futuro (v0.3.0), um webhook adicional dispare o circuit breaker — mas neste capítulo só linkamos email.
+Voltamos ao Budget para conectar o Action Group ao threshold de 100% Forecasted. Neste passo só linkamos email; o webhook que dispara o circuit-breaker n8n será adicionado ao Action Group no Passo 8.8.
 
 **No Portal Azure:**
 
@@ -370,16 +371,96 @@ Cost Analysis é o **diagnóstico**: depois que budget alerta, você precisa sab
 
 ---
 
-## Sobre o Logic App circuit-breaker (callout — adiado para v0.3.0)
+## Passo 8.8 — Circuit-breaker via workflow n8n (cross-repo · reusa n8n do Lab Final)
 
-> **Promessa de iteração futura:** o guia canônico (`Lab_Avancado_IA_Producao_Guia_Portal.md` Parte 6 Passo 6.5) cobre um **Logic App circuit-breaker** que reage ao webhook do budget threshold 100% e desabilita deployments OpenAI temporariamente (`scaleSettings.capacity = 0`). Nesta versão `v0.2.0-portal` do companion, **o circuit-breaker fica adiado para `v0.3.0`** por 2 razões pragmáticas:
->
-> 1. **Logic App designer + Managed Identity + PATCH em CognitiveServices** envolve ~4 etapas em Portal designer + autenticação Teams Connector + tunelamento de webhook do Action Group para Logic App. Empilha complexidade sem ganho pedagógico claro neste momento.
-> 2. **Pattern de circuit-breaker production-grade** envolve health checks contínuos + state machine (Durable Functions) + automatic recovery + auto-rollback. O exemplo do guia canônico é **didático mas simplificado** — em prod real seria refator. Melhor postergar para uma iteração que faça **certo**.
->
-> **O que continua nesta v0.2.0:** os 3 Policies + Budget + Action Group + Dashboard. Quando `v0.3.0` chegar, o circuit-breaker vira o Passo 8.8 (ou capítulo dedicado).
->
-> **Próximo passo se você tiver pressa:** consulte `Lab_Avancado_IA_Producao_Guia_Portal.md` Parte 6 Passo 6.5 no monorepo `azure-retail` para o walkthrough completo do Logic App. Você pode segui-lo manualmente fora do escopo do companion.
+**Conceito:** Quando o Budget alert dispara (gasto previsto ultrapassa threshold), em vez de só enviar email, queremos **pausar recursos caros automaticamente** (APIM Developer, AI Search Standard, Container Apps com auto-scaling alto). O Action Group dispara um **webhook que aciona um workflow n8n** que executa as actions de pausa.
+
+**Por que n8n e não Logic App:**
+
+- Logic App: ~R$ 0,40/execução (Consumption tier) + complexidade extra de conectores Azure + designer Portal pesado.
+- n8n: você **já tem provisionado** no Lab Final (cap 07 — `ca-n8n-helpsphere` em `rg-lab-final`); reusa sem custo extra.
+- Padrão n8n é mais flexível para customização visual e auditoria, e o workflow vive em JSON versionável.
+
+**Pré-requisito:** ter feito o Lab Final cap 07 com sucesso. Anote a `$env:N8N_URL` de lá (formato `https://ca-n8n-helpsphere.<random>.eastus2.azurecontainerapps.io`).
+
+**No terminal local (Windows PowerShell 7) — criar workflow JSON no repo:**
+
+```powershell
+# 1. Confirme variáveis ambiente do Lab Final
+$env:N8N_URL
+$env:SUB_ID = az account show --query id -o tsv
+
+# 2. Crie pasta n8n-workflows no repo prod-lab
+New-Item -ItemType Directory -Force -Path "n8n-workflows" | Out-Null
+
+# 3. Crie o arquivo pause-resources-on-budget.json
+$WorkflowJson = @'
+{
+  "name": "pause-resources-on-budget",
+  "nodes": [
+    {
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "parameters": {
+        "path": "budget-circuit-breaker",
+        "httpMethod": "POST",
+        "authentication": "headerAuth"
+      }
+    },
+    {
+      "name": "Pause APIM",
+      "type": "n8n-nodes-base.httpRequest",
+      "parameters": {
+        "url": "https://management.azure.com/subscriptions/{{$env.SUB_ID}}/resourceGroups/rg-lab-avancado/providers/Microsoft.ApiManagement/service/apim-helpsphere-prod?api-version=2023-05-01-preview",
+        "method": "PATCH",
+        "body": "{\"sku\": {\"name\": \"Consumption\"}}"
+      }
+    },
+    {
+      "name": "Notify Teams",
+      "type": "n8n-nodes-base.httpRequest"
+    }
+  ]
+}
+'@
+Set-Content -Path "n8n-workflows/pause-resources-on-budget.json" -Value $WorkflowJson -Encoding UTF8
+```
+
+> **Alternativa Linux/Mac/WSL (bash):** troque `$env:N8N_URL` por `echo $N8N_URL`, `New-Item -ItemType Directory -Force -Path` por `mkdir -p`, e use `cat > n8n-workflows/pause-resources-on-budget.json <<'EOF' ... EOF`.
+
+**No Portal n8n (abrir `$env:N8N_URL` no browser):**
+
+1. Login no n8n já provisionado no Lab Final (credenciais capturadas naquele cap)
+2. **Workflows** → **+ Add workflow** → menu três pontinhos (canto superior direito) → **Import from File** → selecionar `n8n-workflows/pause-resources-on-budget.json` do repo local
+3. Configurar credentials Azure: clique no node **Pause APIM** → **Credentials** → **Create New** → tipo `Azure Service Principal` (use o SP do Cap 03 prod-lab se disponível, senão crie SP novo com role `Contributor` em `rg-lab-avancado` via `az ad sp create-for-rbac --role Contributor --scopes /subscriptions/$env:SUB_ID/resourceGroups/rg-lab-avancado`)
+4. Configurar **Header Auth** no node Webhook: **Credentials** → **Create New** → name: `webhook-budget-secret` → **Header name:** `X-Webhook-Secret` → **Header value:** gere um GUID (`[guid]::NewGuid().ToString()` em PowerShell) e anote
+5. **Activate workflow** (toggle no canto superior direito)
+6. Copiar **Webhook URL** do node Webhook (formato `https://$env:N8N_URL/webhook/budget-circuit-breaker`)
+
+<!-- screenshot: cap08-passo8.8-n8n-workflow-imported.png -->
+
+**No Portal Azure (Action Group do Passo 8.5/8.6):**
+
+7. **Monitor** → **Alerts** → **Action groups** → `ag-helpsphere-ia-alerts` → **Edit**
+8. Aba **Actions** → **+ Add notification** → tipo **Webhook**
+   - **Name:** `n8n-circuit-breaker`
+   - **URI:** colar a URL do webhook n8n copiada no passo 6
+   - **Common alert schema:** `Yes` (envia payload normalizado Azure Monitor)
+9. **Save**
+
+<!-- screenshot: cap08-passo8.8-action-group-webhook-added.png -->
+
+10. **Validação:** Forçar simulação do Budget alert via Portal → **Cost Management** → `budget-helpsphere-ia` → topo → **Send test alert** (ou disparar Action Group `Test action group` tipo `Webhook`) → verificar no n8n histórico de **Executions** que o workflow `pause-resources-on-budget` rodou e o node `Pause APIM` retornou HTTP 200/202
+
+<!-- screenshot: cap08-passo8.8-n8n-execution-history.png -->
+
+> **Custo:** R$ 0 extras — reusa n8n já provisionado no Lab Final. Workflow JSON é arquivo de config, sem cobrança. Cada execução do webhook é ~R$ 0,0001 no n8n self-hosted (uso desprezível).
+
+> **Nota pedagógica — n8n é ferramenta transversal multi-lab:** Esse pattern (provisionar uma vez, reusar em N labs) é comum em ambientes corporativos. n8n vira **plataforma de automação compartilhada** entre squads — Cost Management circuit-breaker, Security incident response, deploy approvals, GitHub issue triage, etc. Em produção real, isso seria n8n self-hosted em cluster dedicado com SLA, RBAC granular e audit log centralizado. No lab, 1 instância single-tenant atende N forks de aluno sem overhead.
+
+> **Nota pedagógica — por que `Header Auth` no webhook:** o webhook n8n é endpoint **público** (qualquer IP da internet alcança). Sem auth, qualquer pessoa que descobrir a URL pode disparar `pause-resources` repetidamente e fazer DoS no seu lab (APIM oscilando entre Developer→Consumption→Developer custa tempo + dinheiro). Header Auth resolve em 30s: n8n built-in valida `X-Webhook-Secret` antes de executar o workflow. Action Group Azure permite custom headers em webhooks (aba **Advanced** ao adicionar webhook) — passe o mesmo secret.
+
+> **Nota pedagógica — recovery do circuit-breaker:** o workflow acima é **trip-only** (pausa, mas não religa). Em prod real, você teria um segundo workflow `resume-resources-on-budget-reset` que dispara quando o budget reseta no primeiro dia do mês (cron trigger no n8n: `0 0 1 * *`). No lab, o **aluno reseta manualmente** após investigar o gasto — força reflexão sobre RCA antes de religar.
 
 ---
 
@@ -446,7 +527,10 @@ if ($Output -match "RequestDisallowedByPolicy") {
 [ ] Action group linkado em budget thresholds 80% e 100%
 [ ] Cost Analysis saved views (by-service, by-tag, by-rg) criados
 [ ] Saved view by-service pinned em helpsphere-ia-dashboard
-[ ] Logic App circuit-breaker NÃO foi criado (adiado v0.3.0 — entendido)
+[ ] Workflow n8n pause-resources-on-budget importado e ativado em $env:N8N_URL (Passo 8.8)
+[ ] Webhook n8n configurado com Header Auth (X-Webhook-Secret)
+[ ] Action Group ag-helpsphere-ia-alerts tem notification tipo Webhook apontando para n8n
+[ ] Test action group disparou execução visível no histórico de Executions do n8n
 ```
 
 ---
@@ -458,7 +542,10 @@ if ($Output -match "RequestDisallowedByPolicy") {
 - ⚠️ **Cost Management latency 8-24h zera dashboards no D0** — após primeiro deploy do RG, abrir Cost Analysis pode mostrar `No data available` mesmo com APIM rodando. Não é bug: ingest do Cost Management roda batch. Volte no D+1 para ver dados completos. Workaround para sessão de gravação: tire screenshots de uma sub madura como referência.
 - ⚠️ **Action Group `Test` dispara TODOS os methods configurados** — se você adicionou SMS para celular do prof + email + push, **todos disparam** (e SMS cobra). Em desenvolvimento, **só configure email** para evitar surpresa de R$ 0,30/SMS no test.
 - ⚠️ **Budget em sub multi-currency cria confusão** — sub PAYG BR cobra em **BRL**, sub corporate AAD pode estar em **USD**. Budget amount é interpretado **na moeda da sub**, não na do usuário. Se você criar budget `200` em sub USD, é US$ 200 (~R$ 1.000), não R$ 200. Verifique **Cost Management → Subscriptions → seu sub → Settings → Currency** antes de criar.
-- ⚠️ **Policy `Require cost-center tag` quebra deploy do azd com Foundry Hub** — se aluno tem o Bicep do Lab Inter ainda apontando ao mesmo RG e o Foundry Hub não tem `cost-center` tag em todos os child resources, a deploy falha. Workaround: Bicep do Lab Inter já cravou tags conforme `core-config` — só verificar se os parameter files estão alinhados. Se falhar, adicione `tags: { 'cost-center': 'apex-helpsphere-ia' }` em todos os recursos no Bicep antes de re-deployar.
+- ⚠️ **Policy `Require cost-center tag` quebra deploy de stacks pré-existentes** — se outro Lab apontou ao mesmo RG e os recursos child do Foundry Hub não tem `cost-center` tag, redeploy falha. Workaround: parameter files devem propagar `tags: { 'cost-center': 'apex-helpsphere-ia' }` em todos os recursos. Como o `rg-lab-avancado` é stack paralela isolada, na prática isso só aparece se aluno apontou Bicep externo aqui.
+- ⚠️ **n8n webhook precisa de auth header se exposto público** — workflow do Passo 8.8 sem auth aceita POST de qualquer IP da internet. Em produção, ative **Header Auth** no node Webhook (n8n built-in, ~30s de config) ou ponha n8n atrás de APIM com policy de validação JWT. Não exponha webhook público sem auth — qualquer um pode disparar `pause-resources` e DoS o lab fazendo APIM oscilar entre Developer→Consumption custando tempo + dinheiro.
+- ⚠️ **n8n cross-repo precisa de RBAC explícito no `rg-lab-avancado`** — o Service Principal usado no n8n (provisionado no Lab Final) **não** tem permissão default em `rg-lab-avancado`. Workaround: rode `az role assignment create --assignee <sp-app-id> --role Contributor --scope /subscriptions/$env:SUB_ID/resourceGroups/rg-lab-avancado` no Passo 8.8 antes de testar o workflow. Erro típico se esquecer: `AuthorizationFailed` no node `Pause APIM`.
+- ⚠️ **Action Group webhook tem retry policy escondida** — se o n8n estiver fora do ar quando budget dispara, Azure Monitor **retenta 3x com backoff exponencial** (1min, 5min, 25min). Se todas falharem, alert vira `dropped` silencioso no Activity Log. Workaround: monitore o próprio Action Group via secondary alert (`az monitor activity-log alert create` no `ActionGroupActionFailed`) — meta-alerting clássico.
 
 ---
 

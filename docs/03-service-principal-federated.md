@@ -2,7 +2,7 @@
 
 > **⚠️ CAPÍTULO OPCIONAL — pode pular se objetivo é só Portal+CLI manual**
 >
-> Este Capítulo cobre Service Principal + Federated Credentials para autenticação OIDC do GitHub Actions no Azure. **Esta versão do lab (v0.3.0) é 100% Portal+CLI manual** — você roda `az deployment group create` direto no terminal com `az login` (seu usuário pessoal). O SP federado só é necessário se você quer estender o lab com CI/CD via GitHub Actions (capítulo futuro, fora do escopo desta versão).
+> Este Capítulo cobre Service Principal + Federated Credentials para autenticação OIDC do GitHub Actions no Azure. **Esta versão do lab é 100% Portal+CLI manual** — você roda `az deployment group create` direto no terminal com `az login` (seu usuário pessoal). O SP federado só é necessário se você quer estender o lab com CI/CD via GitHub Actions (fora do escopo desta versão).
 >
 > **Quando seguir este Capítulo:**
 > - Você quer aprender o pattern OIDC Federated SP como conhecimento adicional
@@ -11,55 +11,56 @@
 >
 > **Quando pular:**
 > - Você quer terminar o Lab Avançado rapidamente (Portal+CLI manual basta)
-> - Sua sub tem ABAC (R6 disclaimer abaixo — bloqueio conhecido)
+> - Sua subscription tem ABAC condition ativa que bloqueia role assignments para SP federado (bloqueio conhecido — detalhes abaixo)
 > - Você nunca vai usar GitHub Actions neste lab
 >
-> **Pré-requisito real para Capítulo 04+:** apenas `az login` com role **Contributor** em `rg-lab-avancado`. Nada mais.
+> **Pré-requisito real para Capítulos seguintes:** apenas `az login` com role **Contributor** em `rg-lab-avancado`. Nada mais.
 
 > **Objetivo (se você optar por seguir):** criar o **App Registration** + **Service Principal** `sp-github-actions-helpsphere`, atribuir role **Contributor** scoped no `rg-lab-avancado`, configurar **3 federated credentials** (main branch + pull_request + environment:production) e cravar os 4 GitHub Secrets (`AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `AZURE_CLIENT_ID`, `AOAI_API_KEY`) — deixando o repo `helpsphere-ia` pronto para autenticar no Azure via OIDC sem nenhum client secret armazenado.
 >
-> **Tempo:** 35-50 min (dobra se cair em ABAC e tiver que pivotar de subscription — R6)
+> **Tempo:** 35-50 min (dobra se cair em ABAC condition e tiver que pivotar de subscription)
 >
-> **Status:** `v0.3.0-optional` ⚠️ MARCADO COMO OPCIONAL — era `v0.2.0-portal` cravando como pré-requisito obrigatório. Esta versão (v0.3.0) reduz escopo: SP federado vira artefato pedagógico opcional, não pré-requisito de Cap 04+.
+> **Status:** `v0.3.0-optional` ⚠️ MARCADO COMO OPCIONAL — SP federado vira artefato pedagógico, não pré-requisito dos capítulos seguintes. Esta versão é 100% Portal+CLI manual.
 
 ---
 
-## DISCLAIMER R6 (HIGH — bloqueante) — ABAC Condition bloqueia fork-by-student
+## Bloqueio conhecido — ABAC Condition em algumas subscriptions
 
-CI/CD via Federated Service Principal **NÃO funciona** em subscriptions com **ABAC condition** ativa por default. Este Capítulo é o canário do lab inteiro: se ABAC bloqueia aqui, **bloqueia tudo dali pra frente** (Capítulos 04-09 dependem do SP federado funcionar).
+CI/CD via Federated Service Principal **NÃO funciona** em subscriptions com **ABAC condition** ativa em role assignments. Se você cair neste cenário, `az role assignment create` para o SP federado retorna `AuthorizationFailed` (às vezes silencioso), e os Capítulos seguintes podem ser tocados normalmente sem o SP — basta usar `az login` do usuário direto.
 
 ### Quando isso acontece
 
-- **Visual Studio Enterprise (`live.com`):** vem com ABAC default que bloqueia role assignments via SP federado
+- **Visual Studio Enterprise (subscriptions `live.com`):** costumam vir com ABAC condition default que bloqueia role assignments via SP federado
 - **Subscriptions corporate com Conditional Access policy** restritiva
-- **Free Trial USD 200:** sem ABAC, mas sem PAYG → Azure OpenAI bloqueia mesmo se SP funcionar
+- **Free Trial USD 200:** sem ABAC, mas sem PAYG habilitado → Azure OpenAI bloqueia mesmo se o SP funcionar
 
-### Subs que funcionam vs que falham
+### Subscriptions que funcionam vs que falham
 
-| Tipo | CI/CD funciona? | Observação |
+| Tipo | SP federado funciona? | Observação |
 |---|---|---|
-| **TFTEC subscription** (cenário ideal) | ✅ SIM | Cenário recomendado pra alunos |
+| **Subscription corporativa sem ABAC** | ✅ SIM | Cenário ideal |
 | **PAYG sem ABAC** | ✅ SIM | Cartão de crédito, ~R$ 35-45 no lab inteiro |
-| **Subscription corporate** sem CA restritiva | ✅ SIM | Confirme com TI antes |
-| Visual Studio Enterprise (`live.com`) | ❌ NÃO | ABAC default ATIVO |
+| **Subscription corporate** sem Conditional Access restritiva | ✅ SIM | Confirme com TI antes |
+| Visual Studio Enterprise (subscriptions `live.com`) | ❌ NÃO | ABAC default ATIVO |
 | Free Trial USD 200 | ❌ NÃO | Sem PAYG → AOAI bloqueia |
 
-> **Atenção breaking — você JÁ validou no Capítulo 01.4.** O teste de ABAC com SP descartável foi feito no Passo 1.4. Se passou lá, vai passar aqui. Se não fez, **volte ao Capítulo 01 antes de seguir** — descobrir ABAC ativo só após criar SP + 3 federated credentials + 4 secrets é desperdício de ~30 min.
+> **Atenção — valide ABAC antes de gastar 30 min.** Antes de criar o App Registration completo, faça um teste rápido: crie um SP descartável (`az ad sp create-for-rbac --name sp-test-abac --skip-assignment`) e tente um `az role assignment create` no `rg-lab-avancado`. Se retornar `AuthorizationFailed` ou falhar silenciosamente, ABAC está ativo — pule este capítulo inteiro e siga com `az login` do usuário nos próximos capítulos.
 
-> **Plano B (recap) se ABAC estiver ativo:** (1) admin remove condition, (2) pivote sub TFTEC, (3) cria PAYG nova, (4) roda local sem CI/CD (perde valor pedagógico). Detalhes no Capítulo 01.
+> **Plano B se ABAC estiver ativo:** (1) admin do tenant remove a condition, (2) você pivota para outra subscription sem ABAC, (3) cria uma PAYG nova, ou (4) toca o lab inteiro com `az login` do usuário (perde-se apenas o aprendizado do pattern OIDC, sem impacto nos demais capítulos).
 
 ---
 
 ## Pré-requisitos
 
-- ✅ Capítulo 01 concluído — ABAC validado INATIVO (Passo 1.4 SP de teste passou)
+- ✅ ABAC condition validada INATIVA na subscription (teste rápido descrito no bloco "Bloqueio conhecido" acima)
 - ✅ Capítulo 02 concluído — RG `rg-lab-avancado` existe em `East US 2` com 4 tags FinOps
 - ✅ Capítulo 02 concluído — Repo GitHub `helpsphere-ia` criado (Private), com scaffold inicial committed em `main`
-- ✅ `az` CLI logado na sub correta (`az account show` retornando subscription validada)
+- ✅ `az` CLI logado na subscription correta (`az account show` retornando subscription validada)
 - ✅ `gh` CLI autenticado com scopes `repo` + `workflow` (`gh auth status`)
-- ✅ Permissão **Application Administrator** OU **Cloud Application Administrator** OU **Owner** na sub (para criar App Registration)
+- ✅ Permissão **Application Administrator** OU **Cloud Application Administrator** OU **Owner** na subscription (para criar App Registration)
+- ✅ PowerShell 7+ no Windows (ou bash em Linux/Mac/WSL) — comandos abaixo são PowerShell-first
 
-> **Atenção gotcha — username GitHub case-sensitive:** Federated credential `subject` valida `repo:<seu-username>/helpsphere-ia:...` **case-sensitive**. Se seu user GitHub é `Guilherme-Campos` mas você cravar `guilherme-campos`, todo CI workflow falha com `AADSTS70021: No matching federated identity record found`. Anote o username com a capitalização **exata** que aparece no perfil GitHub.
+> **Atenção gotcha — username GitHub case-sensitive:** Federated credential `subject` valida `repo:<seu-username>/helpsphere-ia:...` **case-sensitive**. Se seu user GitHub é `Guilherme-Campos` mas você cravar `guilherme-campos`, todo workflow falha com `AADSTS70021: No matching federated identity record found`. Anote o username com a capitalização **exata** que aparece no perfil GitHub.
 
 ---
 
@@ -69,11 +70,11 @@ CI/CD via Federated Service Principal **NÃO funciona** em subscriptions com **A
 |---|---|---|---|
 | 1 | App Registration + SP `sp-github-actions-helpsphere` | Microsoft Entra ID | Single tenant, role `Contributor` em `rg-lab-avancado` |
 | 2 | 3 Federated Credentials (main / pull_request / production) | App Registration → Certificates & secrets | OIDC trust GitHub → Entra, **zero client secret** |
-| 3 | 4 GitHub Secrets (Tenant + Sub + Client + AOAI key) | Repo `helpsphere-ia` → Settings → Secrets and variables → Actions | Consumidos pelos workflows do Capítulo 05 |
+| 3 | 4 GitHub Secrets (Tenant + Sub + Client + AOAI key) | Repo `helpsphere-ia` → Settings → Secrets and variables → Actions | Consumidos por workflows GitHub Actions (futuro) |
 
 > **Nota pedagógica — por que SP federado e não client secret?** O pattern legacy era criar SP, gerar client secret de 1-2 anos de validade, copiar pro `secrets.AZURE_CREDENTIALS` JSON e usar `azure/login@v2` com `creds:`. Funciona — mas o segredo vaza se o repo é exfiltrado, expira sem aviso e exige rotação manual. Federated OIDC elimina o segredo: GitHub apresenta JWT assinado pelo `https://token.actions.githubusercontent.com`, Entra valida `subject` + `audience`, ninguém troca senha. **Pattern Microsoft canônico desde 2022.** Se seu time ainda usa client secret, vale evangelizar.
 
-> **Nota pedagógica — por que 3 federated credentials e não 1?** Cada credential autoriza **um cenário GitHub Actions específico**: (a) `main` autoriza push direto/merge em main → CD Staging dispara, (b) `pull_request` autoriza job `bicep-what-if` no CI ao abrir PR, (c) `environment:production` autoriza deploy prod via `workflow_dispatch` com approval gate. **Sem credential `pull_request`, o `bicep-what-if` falha em PR.** Sem credential `environment:production`, o CD Prod do Capítulo 05 trava com `AADSTS70021`. Pattern: 1 credential = 1 trigger.
+> **Nota pedagógica — por que 3 federated credentials e não 1?** Cada credential autoriza **um cenário GitHub Actions específico**: (a) `main` autoriza push direto/merge em main, (b) `pull_request` autoriza jobs read-only ao abrir PR (ex.: `bicep-what-if`), (c) `environment:production` autoriza deploy prod via `workflow_dispatch` com approval gate. **Sem credential `pull_request`, jobs em PR falham.** Sem credential `environment:production`, deploys com `environment: production` travam com `AADSTS70021`. Pattern: 1 credential = 1 trigger.
 
 ---
 
@@ -138,7 +139,7 @@ O SP precisa de permissão para criar/atualizar recursos dentro do RG (APIM, Con
 4. Tab **Members:**
    - **Assign access to:** ☑ `User, group, or service principal`
    - **+ Select members** → digitar `sp-github-actions-helpsphere` → clicar no resultado
-5. Tab **Conditions:** **deixar default** (sem condition — se você adicionar uma aqui, recria o R6 disclaimer dentro do próprio role assignment)
+5. Tab **Conditions:** **deixar default** (sem condition — se você adicionar uma ABAC condition aqui, replica dentro do próprio role assignment o mesmo problema que pode existir na subscription)
 6. Tab **Review + assign** → confirmar Role = `Contributor` + Members = SP correto → **Review + assign**
 7. Aguardar ~5-15s até notificação **"Role assignment added"** no canto superior direito
 
@@ -225,7 +226,7 @@ Em vez de armazenar client secret no GitHub, usamos **OIDC federation trust** en
 
 ## Passo 3.4 — Configurar Federated Credential 2 — pull_request
 
-O job `bicep-what-if` do Capítulo 05 roda **apenas em PRs** (`if: github.event_name == 'pull_request'`). PRs não fazem `push` em `main` — eles disparam o evento `pull_request`. **Sem esta segunda credential, o what-if falha** com `AADSTS70021`.
+Jobs que rodam **apenas em PRs** (`if: github.event_name == 'pull_request'`, típico para validações read-only como `bicep-what-if`) não disparam o evento `push` em `main` — eles disparam o evento `pull_request`. **Sem esta segunda credential, esses jobs falham** com `AADSTS70021`.
 
 **No Portal Azure (mesma App Registration):**
 
@@ -260,13 +261,13 @@ O job `bicep-what-if` do Capítulo 05 roda **apenas em PRs** (`if: github.event_
 >
 > > **Linux/Mac/WSL:** troque here-string `@"..."@` por here-doc `cat > file <<EOF ... EOF`, `$Var` por `"${VAR}"`.
 
-> **Nota pedagógica — `pull_request` autoriza qualquer PR no repo:** diferente de `ref:refs/heads/main` (que exige branch específico), `pull_request` é abrangente — qualquer PR dispara. Em prod com forks, isso pode ser perigoso (fork malicioso abre PR + roda código com role Contributor no seu RG). Mitigação no Capítulo 05: o what-if é **read-only** (só `az deployment group what-if`, sem `create`) — então mesmo se um fork rodar, ele não muta nada. Pattern: credential `pull_request` SEMPRE com workflow read-only no PR.
+> **Nota pedagógica — `pull_request` autoriza qualquer PR no repo:** diferente de `ref:refs/heads/main` (que exige branch específico), `pull_request` é abrangente — qualquer PR dispara. Em prod com forks, isso pode ser perigoso (fork malicioso abre PR + roda código com role Contributor no seu RG). Mitigação recomendada: workflows usando esta credential devem ser **read-only** (só `az deployment group what-if`, `az resource list`, sem `create`/`delete`) — então mesmo se um fork rodar, ele não muta nada. Pattern: credential `pull_request` SEMPRE com workflow read-only no PR.
 
 ---
 
 ## Passo 3.5 — Configurar Federated Credential 3 — environment:production
 
-O workflow `cd-prod.yml` (Capítulo 05) usa `environment: production` no job. O JWT que GitHub apresenta inclui `subject = repo:<user>/<repo>:environment:production`. Sem credential matching, deploy prod falha **mesmo com approval clicado**.
+Workflows que usam `environment: production` no job (típico para deploys gated com approval) fazem o GitHub apresentar JWT com `subject = repo:<user>/<repo>:environment:production`. Sem credential matching, o deploy prod falha **mesmo com approval clicado**.
 
 **No Portal Azure (mesma App Registration):**
 
@@ -276,7 +277,7 @@ O workflow `cd-prod.yml` (Capítulo 05) usa `environment: production` no job. O 
    - **Organization:** seu username GitHub (idem)
    - **Repository:** `helpsphere-ia`
    - **Entity type:** `Environment`
-   - **GitHub environment name:** `production` (case-sensitive — combina com `environment: production` do `cd-prod.yml`)
+   - **GitHub environment name:** `production` (case-sensitive — combina exatamente com `environment: production` declarado no job YAML)
    - **Name:** `github-helpsphere-env-production`
    - **Description:** `Deploy to production environment (manual approval required)`
 4. **Add**
@@ -307,7 +308,7 @@ O workflow `cd-prod.yml` (Capítulo 05) usa `environment: production` no job. O 
 >
 > > **Linux/Mac/WSL:** troque here-string `@"..."@` por here-doc, `` ` `` por `\`, `$Var` por `"${VAR}"`.
 
-> **Nota pedagógica — por que credential `environment` separada de `branch`?** Mesmo que o `cd-prod.yml` rode em `main`, GitHub envia JWT com `subject = environment:production` (não `ref:refs/heads/main`) quando o job tem `environment: <name>`. **Os dois subjects são mutuamente exclusivos por workflow run.** Se você criasse só credential `main`, o CD Staging funcionaria (não usa environment) mas CD Prod falharia. Se você criasse só `environment:production`, CD Prod funcionaria mas CI/CD Staging falhariam. Os 3 cobrem os 3 cenários do Capítulo 05.
+> **Nota pedagógica — por que credential `environment` separada de `branch`?** Mesmo que o workflow de deploy prod rode em `main`, GitHub envia JWT com `subject = environment:production` (não `ref:refs/heads/main`) quando o job tem `environment: <name>`. **Os dois subjects são mutuamente exclusivos por workflow run.** Se você criasse só credential `main`, jobs sem `environment:` funcionariam mas o deploy prod falharia. Se você criasse só `environment:production`, o deploy prod funcionaria mas demais jobs em `main` falhariam. Os 3 cobrem os 3 cenários típicos (push em main, PR, deploy gated por environment).
 
 ---
 
@@ -322,7 +323,9 @@ Os 3 IDs (Tenant, Subscription, Client) + a key AOAI precisam virar **secrets** 
    - **Name:** `AZURE_TENANT_ID` · **Secret:** Tenant ID anotado no Passo 3.1 → **Add secret**
    - **Name:** `AZURE_SUBSCRIPTION_ID` · **Secret:** rode `az account show --query id -o tsv` localmente e cole → **Add secret**
    - **Name:** `AZURE_CLIENT_ID` · **Secret:** Application (client) ID anotado no Passo 3.1 → **Add secret**
-   - **Name:** `AOAI_API_KEY` · **Secret:** key do Azure OpenAI (recurso `aifproj-helpsphere-rag` do Lab Intermediário, ou crie um novo se rodando standalone) → **Add secret**
+   - **Name:** `AOAI_API_KEY` · **Secret:** key do Azure OpenAI (use o recurso AOAI que você já provisionou em outros labs, ou crie um novo se rodando standalone) → **Add secret**
+
+> **Atenção placeholder `AOAI_API_KEY`:** se você está fazendo o Lab Avançado standalone (sem ter provisionado AOAI em labs anteriores), pode deixar o secret com valor `placeholder-sem-aoai` temporariamente. Os capítulos posteriores em modo Portal+CLI manual **não** consomem esse secret — ele só faria sentido se algum dia você plugar workflows GitHub Actions que chamem AOAI a partir do runner.
 
 <!-- screenshot: cap03-passo3.6-github-secrets-list.png -->
 
@@ -336,7 +339,7 @@ Os 3 IDs (Tenant, Subscription, Client) + a key AOAI precisam virar **secrets** 
 > gh secret set AZURE_TENANT_ID --body $TenantId --repo "<seu-username>/helpsphere-ia"
 > gh secret set AZURE_SUBSCRIPTION_ID --body $SubscriptionId --repo "<seu-username>/helpsphere-ia"
 > gh secret set AZURE_CLIENT_ID --body $ClientId --repo "<seu-username>/helpsphere-ia"
-> gh secret set AOAI_API_KEY --body "<sua-key-aoai-do-Lab-Inter>" --repo "<seu-username>/helpsphere-ia"
+> gh secret set AOAI_API_KEY --body "<sua-key-aoai-ou-placeholder>" --repo "<seu-username>/helpsphere-ia"
 >
 > # Validar (não mostra valores — apenas nomes)
 > gh secret list --repo "<seu-username>/helpsphere-ia"
@@ -347,7 +350,7 @@ Os 3 IDs (Tenant, Subscription, Client) + a key AOAI precisam virar **secrets** 
 
 > **Custo:** R$ 0 — secrets ilimitados em qualquer tier GitHub.
 
-> **Nota pedagógica — Variables vs Secrets (recap):** as 3 IDs Azure poderiam tecnicamente ser **variables** (não são "sensíveis" no sentido estrito — `subscription_id` aparece em logs do `az` rotineiramente). Mas pela convenção Microsoft + GitHub OIDC docs, sempre usamos **secrets**. Excepcionalmente o `AOAI_API_KEY` é **inegociavelmente secret** (key API que cobra por token consumido). Se vazar, atacante consome até quota acabar. Pattern: na dúvida, secret. Variable só pra URLs e flags públicos (Capítulo 05 Passo 5.5).
+> **Nota pedagógica — Variables vs Secrets:** as 3 IDs Azure poderiam tecnicamente ser **variables** (não são "sensíveis" no sentido estrito — `subscription_id` aparece em logs do `az` rotineiramente). Mas pela convenção Microsoft + GitHub OIDC docs, sempre usamos **secrets**. Excepcionalmente o `AOAI_API_KEY` é **inegociavelmente secret** (key API que cobra por token consumido). Se vazar, atacante consome até quota acabar. Pattern: na dúvida, secret. Variable só pra URLs e flags públicos.
 
 ---
 
@@ -466,18 +469,21 @@ if (Test-Path sp-credentials.json) {
 [ ] GitHub Secret AZURE_TENANT_ID cravado
 [ ] GitHub Secret AZURE_SUBSCRIPTION_ID cravado
 [ ] GitHub Secret AZURE_CLIENT_ID cravado
-[ ] GitHub Secret AOAI_API_KEY cravado (do Lab Intermediário aifproj-helpsphere-rag)
+[ ] GitHub Secret AOAI_API_KEY cravado (sua key AOAI ou placeholder se standalone)
 [ ] sp-credentials.json local DELETADO (cleanup de segurança)
-[ ] R6 disclaimer revisitado e ABAC confirmado INATIVO (Cap 01.4)
+[ ] ABAC condition confirmada INATIVA (teste rápido do bloco "Bloqueio conhecido")
 ```
 
 ---
 
 ## Surpresas pedagógicas (capturadas em smoke runs)
 
-- ⚠️ **`AADSTS70021: No matching federated identity record found` no primeiro CI run** — quase sempre é **typo no username GitHub** (case-sensitive). Confira se o `subject` da credential corresponde **exatamente** a `repo:<user>/helpsphere-ia:ref:refs/heads/main` com a capitalização do perfil GitHub. Se renomeou o repo depois, **recria a credential** — Entra não atualiza dinamicamente.
-- ⚠️ **Esqueceu credential `pull_request` e o job `bicep-what-if` falha em PR** — sintoma: CI passa em push direto em `main` mas falha ao abrir PR. Causa: só credential `main` cravada. Workaround: voltar ao Passo 3.4 e criar a 2ª credential. **Não tente** "ampliar" o subject da credential 1 — `repo:<user>/<repo>:*` não é wildcard suportado.
-- ⚠️ **CD Prod aprovado mas ainda falha com `AADSTS70021`** — mesmo após você clicar Approve no environment `production`, falta credential `environment:production` (Passo 3.5). Sintoma desconcertante porque approval gate fica verde mas o job logo depois quebra. Workaround: criar credential 3 e re-run.
+- ⚠️ **ABAC condition em subscription bloqueia `az role assignment create` silenciosamente** — algumas subscriptions (notoriamente Visual Studio Enterprise `live.com`) vêm com ABAC condition default em role assignments. Sintoma: `az role assignment create --assignee <sp> --role Contributor` retorna `AuthorizationFailed` ou, pior, **falha silenciosa** (exit code 0 mas role não foi criada). Workaround: rode `az role assignment list --assignee <sp-object-id>` imediatamente após o `create` — se a lista vier vazia, ABAC bloqueou. Pivote para subscription sem ABAC ou toque o lab inteiro com `az login` do usuário (este capítulo é OPCIONAL).
+- ⚠️ **`AADSTS70021: No matching federated identity record found` no primeiro workflow run** — quase sempre é **typo no username GitHub** (case-sensitive). Confira se o `subject` da credential corresponde **exatamente** a `repo:<user>/helpsphere-ia:ref:refs/heads/main` com a capitalização do perfil GitHub. Se renomeou o repo depois, **recria a credential** — Entra não atualiza dinamicamente.
+- ⚠️ **3 subjects mínimos para cobrir `pull_request` + `branch:main` + `environment:production`** — esquecer um quebra workflow específico. Sintoma: workflows em `main` passam mas PRs falham (faltou credential 2); deploy gated por environment falha mesmo com approval clicado (faltou credential 3). Workaround: confirme as 3 credentials no Passo 3.7 ANTES de tocar workflows. **Não tente** wildcard `repo:<user>/<repo>:*` — não é suportado.
+- ⚠️ **`azure/login@v2` exige `permissions: id-token: write` no workflow YAML** — sem esse bloco no topo do `.github/workflows/<x>.yml`, o GitHub Actions runner não consegue emitir o JWT OIDC e a action retorna `AADSTS70021` (sintoma idêntico a credential errada — armadilha de troubleshooting). Workaround: todo workflow que usa `azure/login@v2` com federated SP precisa declarar `permissions: id-token: write\n  contents: read` no escopo do job ou do workflow inteiro.
+- ⚠️ **Federated credential `issuer` URL é literal — espaço extra quebra trust** — o valor `https://token.actions.githubusercontent.com` é literal, sem trailing slash, sem espaço extra. Se você editar manualmente via JSON e deixar `" https://token..."` (espaço antes do `h`), o trust falha com erro genérico de issuer mismatch. Workaround: ao usar `az ad app federated-credential create --parameters`, valide o JSON com `Get-Content fc-main.json | ConvertFrom-Json` antes de mandar.
+- ⚠️ **`audience` precisa ser `api://AzureADTokenExchange` literal (Microsoft default)** — esse valor é a audience padrão que `azure/login@v2` envia no JWT. Trocar para qualquer outra string quebra a validação `audience claim` em Entra. Sintoma: `AADSTS50027: Invalid JWT token. Token format not valid`. Workaround: deixe o campo default no Portal (vem pré-preenchido); via CLI, valide `"audiences": ["api://AzureADTokenExchange"]` no JSON antes do `create`.
 - ⚠️ **Role Contributor atribuída no escopo da subscription inteira "por engano"** — você clicou Subscriptions → IAM em vez de Resource Groups → IAM. Sintoma: pipeline funciona, mas SP tem permissão excessiva (cria recursos em qualquer RG). Workaround: deletar role assignment subscription-scoped (`az role assignment delete --assignee $SP_OBJ --scope /subscriptions/$SUB_ID`) e refazer no scope RG. Faça isso **antes** do primeiro run em produção real.
 - ⚠️ **`gh secret set` reclamando "could not find any secrets management"** — repo está vazio sem `main` branch. Sintoma: gh CLI confuso porque não há branch default. Workaround: garantir que Capítulo 02 fez `git push origin main` antes deste Capítulo. Pré-requisito explícito no topo.
 - ⚠️ **`sp-credentials.json` commitado por engano** — você rodou `az ad sp create-for-rbac` sem `.gitignore` populado, ou estava em outro diretório. Sintoma: GitHub Secret Scanning alerta em segundos + bots tentam usar o segredo. Workaround imediato: (1) `git rm sp-credentials.json && git commit && git push` + (2) `az ad sp credential reset --id $APP_ID` (invalida segredo vazado, mas SP continua válido para federated). Stop-loss: rode `git status` antes de cada commit, sempre.
