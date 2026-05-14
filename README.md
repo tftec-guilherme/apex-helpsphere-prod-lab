@@ -6,7 +6,9 @@ Este repo é o **espelho production-grade** do tema apex-helpsphere para o Lab A
 
 > **CI/CD via GitHub Actions é capítulo futuro** — esta versão (v0.3.0) é 100% Portal+CLI manual para reduzir superfície de falha (ABAC, OIDC trust, federated SP). Aluno domina Bicep + `az deployment group create` primeiro; CI/CD vira release dedicada.
 
-**Status:** v0.3.0-cli-manual
+> **📘 Guia Portal completo (entry-point único):** [`docs/00-Lab_Avancado_IA_Producao_Guia_Portal.md`](./docs/00-Lab_Avancado_IA_Producao_Guia_Portal.md) — 94KB, 2212 linhas, fluxo completo de ponta a ponta production-grade. Os 11 capítulos (`01-...` a `10-...`, incluindo split `04a`/`04b`) são as partes detalhadas referenciadas pelo guia.
+
+**Status:** v0.3.1-guia-portal-consolidado
 
 ---
 
@@ -117,7 +119,9 @@ apex-helpsphere-prod-lab/
 │   ├── mcp-server/     # Placeholder — consumido via APIM, não reimplementado
 │   └── functions/      # Reservado para HTTP triggers auxiliares
 ├── eval/               # Offline evaluation harness (groundedness/relevance/latency)
-├── docs/               # 10 capítulos Lab Avançado (Portal+CLI manual)
+├── docs/               # guia consolidado (entry-point) + 11 capítulos Lab Avançado (Portal+CLI manual)
+│   ├── 00-Lab_Avancado_IA_Producao_Guia_Portal.md  # ⭐ GUIA COMPLETO entry-point (94KB · 2212L)
+│   └── 01-... → 10-...  (11 capítulos detalhados)
 ├── README.md           # ESTE arquivo
 ├── PARA-O-ALUNO.md     # Boas-vindas + 7 pré-requisitos + 2 disclaimers HIGH
 ├── CHANGELOG.md
