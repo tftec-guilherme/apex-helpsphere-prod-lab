@@ -140,6 +140,21 @@ Veja `docs/10-cleanup.md` para checklist completo.
 
 ---
 
+## Referências cross-repo
+
+Este lab faz parte da **família de 4 repos** da Disciplina 06 (IA e Automação no Azure):
+
+| Repo | Bloco D06 | Estilo | Status |
+|---|---|---|---|
+| [`apex-helpsphere`](https://github.com/tftec-guilherme/apex-helpsphere) | Bloco 2 — SaaS base | Production-grade, `azd up` | v2.x |
+| [`apex-rag-lab`](https://github.com/tftec-guilherme/apex-rag-lab) | Bloco 3 — Lab Intermediário RAG | Portal-first + fork funcional | v1.x |
+| [`apex-helpsphere-agente-lab`](https://github.com/tftec-guilherme/apex-helpsphere-agente-lab) | Bloco 4-5 — Lab Final agente | Portal-first companion | v0.3.x |
+| **`apex-helpsphere-prod-lab`** (você está aqui) | Bloco 6 — Lab Avançado IA production | Bicep + Azure CLI manual | v0.3.x |
+
+> **Stack paralela à SaaS:** este repo NÃO consome `apex-helpsphere`. Aprende-se o pattern production-grade (APIM Developer, Content Safety, App Insights workspace-based, Azure Policy) em recursos isolados em `rg-lab-avancado`. Ver [`PARA-O-ALUNO.md`](./PARA-O-ALUNO.md#filosofia-bicep-is-canonical) para rationale.
+
+---
+
 ## Suporte
 
 - Issues: https://github.com/tftec-guilherme/apex-helpsphere-prod-lab/issues
