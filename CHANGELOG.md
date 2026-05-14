@@ -6,6 +6,33 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/), 
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-05-14
+
+### Added
+
+**Patterns pedagógicos reusados do `apex-helpsphere`** (Story 06.22 Bloco B).
+
+Auditoria `@aiox-master` em 2026-05-14 detectou que `apex-helpsphere` (SaaS base) consolidou `DECISION-LOG.md` (23 decisões) + `APPENDIX-SURPRESAS.md` (35 surpresas) como patterns pedagógicos valiosos, mas este repo não os reusava — mesmo tendo decisões cravadas (D1-D5 Story 06.19) e surpresas catalogáveis (Wave 4 polish, ABAC condition, APIM Developer, etc.).
+
+- **`DECISION-LOG.md`** (novo arquivo) — 7 decisões iniciais consolidadas: D1 RG canonical, D2 Bicep targetScope, D3 remover workflows, D4 doc/03 OPCIONAL, D5 stack isolada, D6 Wave 4 polish dirigido, D7 adoção DECISION-LOG pattern (F-010)
+- **`APPENDIX-SURPRESAS.md`** (novo arquivo) — 8 surpresas iniciais catalogadas: ABAC condition, audit sample-by-sample, APIM Developer auto-pause, Bicep targetScope subscription, bash heredoc, string slicing, plan vs reality drift, email config (F-011)
+- **`README.md`** — nova seção `## Referências cross-repo` com tabela dos 4 repos D06 (apex-helpsphere SaaS + apex-rag-lab + agente-lab + prod-lab), antes da seção Suporte (F-012)
+- **`PARA-O-ALUNO.md`** — nova seção `## Por que stack paralela e não integrada?` com 4 razões pedagógicas/operacionais, antes dos Disclaimers HIGH (F-013)
+
+### Pedagogical impact
+
+- Aluno encontra `DECISION-LOG.md` + `APPENDIX-SURPRESAS.md` nos mesmos lugares que `apex-helpsphere` — consistência pedagógica cross-repo
+- "Por que stack paralela?" responde explicitamente pergunta recorrente de alunos que esperavam integração com SaaS
+- Cross-link sibling `apex-helpsphere-agente-lab` evita aluno se perder na família de repos
+
+### Cross-references
+
+- Story 06.22: `azure-retail/docs/stories/06.22.companion-labs-readme-sync.md` (Bloco B AC9-AC13)
+- Padrão gold standard: `apex-helpsphere/DECISION-LOG.md` + `apex-helpsphere/APPENDIX-SURPRESAS.md`
+- Predecessor: Story 06.19 (D1-D5 cravadas) + Wave 4 polish (`e774af0`)
+
+---
+
 ## [0.3.0] - 2026-05-10
 
 ### Changed (BREAKING)
