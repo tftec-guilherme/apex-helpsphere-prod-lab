@@ -1,14 +1,24 @@
-# Apex HelpSphere — Lab Avançado D06 (IA Production-grade)
+<div align="center">
 
-> Companion repo do **Lab Avançado** da Disciplina 06 (IA e Automação no Azure — Ferramentas Integradas) da Pós-Graduação em Arquitetura Cloud Azure (TFTEC + Anhanguera).
+# 🏭 Apex HelpSphere — Lab Avançado D06
 
-Este repo é o **espelho production-grade** do tema apex-helpsphere para o Lab Avançado. Diferente do `apex-rag-lab` (Lab Intermediário, Portal-first puro), aqui o aluno aplica **Bicep production-ready + Azure CLI manual** numa STACK PARALELA à fundação SaaS — mesmos padrões técnicos (APIM Developer, Content Safety, App Insights workspace-based, Azure Policy), recursos isolados em `rg-lab-avancado` para fins pedagógicos.
+**IA Production-grade — Bicep canonical + Azure CLI manual em STACK PARALELA**
 
-> **CI/CD via GitHub Actions é capítulo futuro** — esta versão (v0.3.0) é 100% Portal+CLI manual para reduzir superfície de falha (ABAC, OIDC trust, federated SP). Aluno domina Bicep + `az deployment group create` primeiro; CI/CD vira release dedicada.
+[![Status](https://img.shields.io/badge/status-v0.3.1--guia--portal--consolidado-success)](./CHANGELOG.md)
+[![Cost](https://img.shields.io/badge/custo-~R%24%20280%2Fm%C3%AAs%20se%20APIM%20ligado-red)](./PARA-O-ALUNO.md#disclaimer-r4--apim-developer-r-250m%C3%AAs-ligado)
+[![Region](https://img.shields.io/badge/region-East%20US%202-orange)](#)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Disciplina D06](https://img.shields.io/badge/Pós--Graduação-TFTEC%20+%20Anhanguera-purple)](https://github.com/tftec-guilherme/azure-retail)
 
-> **📘 Guia Portal completo (entry-point único):** [`docs/00-Lab_Avancado_IA_Producao_Guia_Portal.md`](./docs/00-Lab_Avancado_IA_Producao_Guia_Portal.md) — 94KB, 2212 linhas, fluxo completo de ponta a ponta production-grade. Os 11 capítulos (`01-...` a `10-...`, incluindo split `04a`/`04b`) são as partes detalhadas referenciadas pelo guia.
+📘 [**Guia Portal completo (94KB · 2212L · entry-point único)**](./docs/00-Lab_Avancado_IA_Producao_Guia_Portal.md)
 
-**Status:** v0.3.1-guia-portal-consolidado
+</div>
+
+---
+
+> Companion repo do **Lab Avançado D06** (IA e Automação no Azure — Ferramentas Integradas) da Pós-Graduação Arquitetura Cloud Azure (TFTEC + Anhanguera). Espelho **production-grade** do tema `apex-helpsphere` em **STACK PARALELA** à fundação SaaS — mesmos padrões técnicos (APIM Developer + Content Safety + App Insights workspace-based + Azure Policy), recursos isolados em `rg-lab-avancado`.
+
+> **CI/CD via GitHub Actions é capítulo futuro** — esta versão (v0.3.1) é 100% Portal+CLI manual para reduzir superfície de falha (ABAC, OIDC trust, federated SP). Aluno domina Bicep + `az deployment group create` primeiro; CI/CD vira release dedicada.
 
 ---
 
@@ -27,7 +37,7 @@ Este repo é o **espelho production-grade** do tema apex-helpsphere para o Lab A
 
 ---
 
-## Quick start
+## 🚀 Quick start
 
 ```powershell
 # 1. (Opcional) Fork ESTE repo no seu GitHub para portfolio
@@ -67,22 +77,32 @@ az group delete --name rg-lab-avancado --yes --no-wait
 
 ---
 
-## Pré-requisitos
+## 📋 Pré-requisitos
 
-| # | Item | Crítico? |
+> [!IMPORTANT]
+> **Stack PARALELA à SaaS** — este lab NÃO consome `apex-helpsphere`. Veja [PARA-O-ALUNO.md "Por que stack paralela?"](./PARA-O-ALUNO.md#por-que-stack-paralela-e-não-integrada).
+
+### 🔴 Críticos (precisa antes)
+
+| # | Item | Por que? |
 |---|------|----------|
-| 1 | **Subscription PAYG** (Free Trial NÃO funciona — Azure OpenAI exige PAYG) | YES |
-| 2 | **Foundry Hub `aifhub-apex-prod`** já provisionado | YES |
-| 3 | Az CLI `>=2.60` + Bicep CLI `>=0.30` | YES |
-| 4 | RG `rg-lab-avancado` criado em East US 2 com 4 tags FinOps (docs/02) | YES |
-| 5 | Python `3.11+` (eval scripts) | NO (offline opcional) |
-| 6 | GitHub repo (fork opcional para portfolio) | NO |
-| 7 | gh CLI autenticado | NO (só se quiser fork via CLI) |
-| 8 | Service Principal com Federated Credentials | NO (CI/CD futuro — fora do escopo) |
+| 1 | **Subscription PAYG** ativa | Azure OpenAI exige PAYG. Free Trial **não funciona** |
+| 2 | **Foundry Hub `aifhub-apex-prod`** | Provisionado no Bloco 6 do recording, em `rg-lab-intermediario` |
+| 3 | **Az CLI ≥ 2.60 + Bicep CLI ≥ 0.30** | Necessário para `az deployment group create` |
+| 4 | **RG `rg-lab-avancado`** | Criar manualmente em East US 2 com 4 tags FinOps ([docs/02](./docs/02-rg-github-setup.md)) |
+
+### 🟡 Opcionais
+
+| # | Item | Quando? |
+|---|------|---------|
+| 5 | GitHub repo (fork) | Portfolio/histórico |
+| 6 | Service Principal federated | Só se estender com CI/CD (capítulo futuro) |
+| 7 | Python 3.11+ | Eval offline opcional |
+| 8 | gh CLI autenticado | Só pra fork via CLI |
 
 ---
 
-## Custos esperados (PAYG East US 2)
+## 💰 Custos esperados (PAYG East US 2)
 
 | Recurso | Tier | Custo aprox/mês |
 |---------|------|-----------------|
@@ -98,7 +118,7 @@ az group delete --name rg-lab-avancado --yes --no-wait
 
 ---
 
-## Filosofia
+## 🧭 Filosofia
 
 - **Bicep IS canonical** — `infra/main.bicep` é a fonte de verdade. Portal só pra visualizar.
 - **CLI manual nesta versão** — Portal+CLI manual (Azure CLI via PowerShell). CI/CD via GitHub Actions é capítulo futuro (fora do escopo).
@@ -134,7 +154,7 @@ apex-helpsphere-prod-lab/
 
 ---
 
-## Cleanup obrigatório
+## 🧹 Cleanup obrigatório
 
 ```powershell
 az group delete --name rg-lab-avancado --yes --no-wait
@@ -144,7 +164,7 @@ Veja `docs/10-cleanup.md` para checklist completo.
 
 ---
 
-## Referências cross-repo
+## 🔗 Família D06
 
 Este lab faz parte da **família de 4 repos** da Disciplina 06 (IA e Automação no Azure):
 

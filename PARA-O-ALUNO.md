@@ -1,5 +1,19 @@
 # PARA O ALUNO — Lab Avançado D06
 
+<div align="center">
+
+**🏭 Boas-vindas ao Lab Avançado D06 production-grade**
+
+[![Status](https://img.shields.io/badge/status-v0.3.1--guia--portal--consolidado-success)](./CHANGELOG.md)
+[![APIM Cost](https://img.shields.io/badge/custo--APIM-~R%24%20250%2Fm%C3%AAs%20ligado-red)](#disclaimer-r4--apim-developer-r-250m%C3%AAs-ligado)
+[![Tier](https://img.shields.io/badge/tier-Bicep%20%2B%20CLI%20manual-blue)](#filosofia-bicep-is-canonical)
+
+📘 [**Guia Portal completo — entry-point único**](./docs/00-Lab_Avancado_IA_Producao_Guia_Portal.md) · 🎯 [**DECISION-LOG**](./DECISION-LOG.md) · 🪤 [**APPENDIX-SURPRESAS**](./APPENDIX-SURPRESAS.md)
+
+</div>
+
+---
+
 Bem-vindo ao **Lab Avançado** da Disciplina 06. Este é o repo companion do tema `apex-helpsphere` em modo **production-grade canônico em STACK PARALELA à fundação SaaS** — mesmos padrões técnicos (APIM Developer, Content Safety, App Insights workspace-based, Azure Policy), mas recursos completamente isolados em `rg-lab-avancado` para fins pedagógicos. NÃO consome a SaaS (apex-helpsphere) — você aprende o pattern, não integra.
 
 Esta versão é **100% Portal+CLI manual**. CI/CD via GitHub Actions é capítulo futuro (fora do escopo). Você aplica Bicep com `az deployment group create` em terminal local — domina a IaC e a stack production-grade primeiro.
