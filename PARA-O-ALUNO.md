@@ -58,11 +58,11 @@ Só necessário se você quer fork via CLI (Pré-requisito 3).
 
 ## Por que stack paralela e não integrada?
 
-Este lab declarou em Story 06.19 (D5) que é **STACK PARALELA** à fundação SaaS (`apex-helpsphere`), não integrada. Razões pedagógicas + operacionais:
+Este lab é **STACK PARALELA** à fundação SaaS (`apex-helpsphere`), não integrada (ver decisão D5 em [`DECISION-LOG.md`](./DECISION-LOG.md)). Razões pedagógicas + operacionais:
 
 1. **Pedagogia limpa:** você aprende o pattern production-grade (APIM Developer + Content Safety + App Insights workspace-based + Azure Policy) sem ter que entender o acoplamento com a SaaS. Pattern primeiro, integração depois.
 2. **FinOps isolado:** cleanup é UM único `az group delete --name rg-lab-avancado`. Sem cross-RG permissions, sem recursos órfãos da SaaS.
-3. **ABAC condition bloqueia federated SP** (ver [`APPENDIX-SURPRESAS.md #1`](./APPENDIX-SURPRESAS.md)): conta VSE pessoal `live.com` do prof tem ABAC condition que filtra principal type, bloqueando fork-by-student CI. Workaround: Portal+CLI manual (D3 Story 06.19).
+3. **ABAC condition bloqueia federated SP** (ver [`APPENDIX-SURPRESAS.md #1`](./APPENDIX-SURPRESAS.md)): conta VSE pessoal `live.com` do prof tem ABAC condition que filtra principal type, bloqueando fork-by-student CI. Workaround: Portal+CLI manual (decisão D3 em [`DECISION-LOG.md`](./DECISION-LOG.md)).
 4. **Consistência cross-lab:** cada lab da D06 tem sua "ilha" — `rg-lab-intermediario` (Inter), `rg-lab-final` (Final), `rg-lab-avancado` (este). Aluno não confunde recursos entre labs.
 
 > **Não estamos dizendo "integração é ruim".** Estamos dizendo "primeiro o pattern isolado, depois a integração (capítulo futuro)". Mesma filosofia do Lab Inter (`apex-rag-lab`) que vira "plugado" à SaaS só no Passo 8 do guia.
