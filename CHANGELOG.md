@@ -6,6 +6,50 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/), 
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-05-19
+
+### Fixed
+
+**Compliance PowerShell-first no guia Portal cap 00 + cap 09** — audit `@qa Quinn` em 2026-05-19 (100% coverage, ~8000 linhas em 14 arquivos) detectou 12 findings reais bash residue concentrados no arquivo `docs/00-Lab_Avancado_IA_Producao_Guia_Portal.md` + 1 finding em `docs/09-runbook-eval.md`. Os outros 12 arquivos (caps 01-08 + 10 + PARA-O-ALUNO + README) já estavam CLEAN.
+
+#### CRITICAL (5 fixes — alunos PowerShell travavam)
+
+- **Cap 00 L215-256 — Passo 1.3 estrutura inicial:** trocado fence ```bash + `mkdir -p` + heredoc bash (`cat > README.md << 'EOF' ... EOF`) por fence ```powershell + `New-Item -ItemType Directory -Force -Path` + here-string `@'...'@ | Set-Content`. Quote "Alternativa via gh CLI" também migrada para PS com disclaimer Linux/Mac/WSL.
+- **Cap 00 L877-883 — Passo 2.7 what-if Bicep:** trocado `\` line continuation por backtick `` ` ``.
+- **Cap 00 L1666-1670 — Passo 5.4 deploy Function App:** trocado `FUNC_AGENT_NAME=$(...)` (atribuição inline bash) por `$FuncAgentName = ...` (PS); `cd` por `Set-Location`.
+- **Cap 00 L1730-1740 — Passo 6.1 deploy Azure Policy subscription-scoped:** reescrito bloco com `$SpAppId/$SpObjectId/$Timestamp` (PS variables), backtick line continuation, e `Get-Date -UFormat %s` no lugar de `$(date +%s)`.
+- **Cap 09 L312 — Passo 9.5 criar RUNBOOK.md:** trocado `mkdir -p docs/` (instrução numerada em prosa) por `New-Item -ItemType Directory -Force -Path docs`.
+
+#### HIGH (5 fixes — inconsistências de fence)
+
+- **Cap 00 L891-895:** ```bash → ```powershell (git commit Bicep)
+- **Cap 00 L987-996:** quote "Alternativa via VS Code + git push" migrada para PS + disclaimer Linux/Mac/WSL.
+- **Cap 00 L2056-2060:** ```bash → ```powershell (git commit RUNBOOK)
+- **Cap 00 L2162:** ```bash → ```powershell (`az group exists`)
+- **Cap 00 L1990-2053 — Passo 7.2 RUNBOOK.md:** wrapper externo ```markdown migrado para 4-backtick (` ```` `) permitindo fence interno ```powershell sem quebrar renderização CommonMark. Bash interno de rollback adaptado para PowerShell.
+
+#### MEDIUM (2 fixes — disclaimers)
+
+- **Cap 00 L2143 — Passo 7.4 cleanup Azure CLI:** quote "Alternativa via Azure CLI" rotulada "(Linux/Mac/WSL — PowerShell)" + `2>/dev/null` → `2>$null` + `echo` → `Write-Host` + disclaimer reverso para Linux/Mac.
+- **Cap 00 — refactor consistência:** englobado pelos fixes individuais.
+
+#### BONUS — 17 quotes "Alternativa via" rotuladas (Linux/Mac/WSL — bash)
+
+Auditoria detectou 17 fences ```bash adicionais dentro de blockquotes "Alternativa via Azure CLI", "Alternativa via gh CLI", "Alternativa via curl externo" — sem disclaimer explícito Linux/Mac/WSL. Conteúdo bash (com `\`, `VAR=$()`, heredoc) trava alunos PowerShell que copiam pensando que `az ...` é multi-plat. Todos os 17 títulos atualizados para sinalizar "(Linux/Mac/WSL — bash)" claramente.
+
+### QA evidence
+
+- Gate: `azure-retail/docs/qa/gates/audit-guia-portal-lab-avancado.yml` (FAIL → fixes aplicados)
+- Predecessores: Story 06.16 (commit `6253b9e` cobriu caps 01-10) + Story 06.19 (commit `6f497e8` alinhamento Azure real) — cap 00 escapou de ambos
+- Stats: 32 fences ```powershell + 0 fences ```bash (era 25 ```bash antes do fix)
+
+### Cross-references
+
+- Stories irmãs Story 06.15 (commit `9635ac1` apex-helpsphere-agente-lab refactor PS) e Story 06.16 (commit `6253b9e` apex-helpsphere-prod-lab caps 01-10)
+- Feedback memory: `feedback_d06_lab_windows_powershell_first.md`, `feedback_audit_100pct_coverage.md`, `feedback_validar_subagent_git_log_no_arquivo.md`
+
+---
+
 ## [0.3.1] - 2026-05-14
 
 ### Added

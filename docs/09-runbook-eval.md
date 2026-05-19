@@ -309,7 +309,7 @@ O runbook documenta **o que fazer quando o agente quebra em produção** — end
 
 **No VS Code:**
 
-1. `mkdir -p docs/` (se não existir)
+1. `New-Item -ItemType Directory -Force -Path docs` (se não existir)
 2. Crie `docs/RUNBOOK.md` com 4 seções fixas (esqueleto abaixo — preencher cada bloco com 3-5 passos numerados):
 
 ```markdown

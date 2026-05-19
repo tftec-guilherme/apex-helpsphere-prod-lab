@@ -175,7 +175,7 @@ flowchart TB
 
 <!-- screenshot: passo-1.1-criar-rg-lab-avancado.png -->
 
-> **Alternativa via Azure CLI:**
+> **Alternativa via Azure CLI (Linux/Mac/WSL — bash):**
 >
 > ```bash
 > az group create \
@@ -212,11 +212,12 @@ Este lab é IaC end-to-end — o código (Bicep + workflows + Python) vive num r
 
 5. Crie a estrutura inicial de pastas localmente:
 
-```bash
-mkdir -p .github/workflows infra/modules infra/envs src/agent src/mcp-server src/functions eval docs
+```powershell
+# Criar estrutura de pastas
+New-Item -ItemType Directory -Force -Path .github/workflows, infra/modules, infra/envs, src/agent, src/mcp-server, src/functions, eval, docs
 
 # README customizado (substitui o default do GitHub)
-cat > README.md << 'EOF'
+@'
 # HelpSphere IA — Production Stack
 
 Stack production-ready de IA para HelpSphere Apex.
@@ -227,33 +228,35 @@ Stack production-ready de IA para HelpSphere Apex.
 - `src/` — código (agent, MCP server, functions)
 - `eval/` — dataset e script de eval offline
 - `docs/RUNBOOK.md` — operação em produção
-EOF
+'@ | Set-Content -Path README.md -Encoding UTF8
 
 # Append ao .gitignore default Python (que o GitHub criou)
-cat >> .gitignore << 'EOF'
+@'
 
 # Lab Avançado D06 specifics
 .azure/
 sp-credentials.json
 *.log
 node_modules/
-EOF
+'@ | Add-Content -Path .gitignore -Encoding UTF8
 
 git add .
 git commit -m "feat: initial scaffold helpsphere-ia"
 git push origin main
 ```
 
-> **Alternativa via gh CLI (criar repo direto da máquina):**
+> **Alternativa via gh CLI (criar repo direto da máquina) — PowerShell:**
 >
-> ```bash
-> mkdir helpsphere-ia && cd helpsphere-ia
+> ```powershell
+> New-Item -ItemType Directory -Force -Path helpsphere-ia; Set-Location helpsphere-ia
 > git init -b main
 > # ... criar arquivos ...
 > gh repo create helpsphere-ia --private --source=. --remote=origin --push
 > ```
 >
 > Funciona se você já tem `gh` autenticado (`gh auth status`).
+>
+> **Linux/Mac/WSL:** troque `New-Item ... ; Set-Location` por `mkdir helpsphere-ia && cd helpsphere-ia`.
 
 ## Passo 1.3 — Criar Service Principal para GitHub Actions
 
@@ -286,7 +289,7 @@ GitHub Actions precisa de identidade Azure para deployar via Bicep. Criamos um *
 
 <!-- screenshot: passo-1.3-rbac-contributor-rg.png -->
 
-> **Alternativa via Azure CLI (mais rápido — cria App Reg + SP + role assignment numa só chamada):**
+> **Alternativa via Azure CLI (Linux/Mac/WSL — bash, mais rápido — cria App Reg + SP + role assignment numa só chamada):**
 >
 > ```bash
 > SUBSCRIPTION_ID=$(az account show --query id -o tsv)
@@ -331,7 +334,7 @@ Em vez de armazenar client secret no GitHub, usamos **OIDC federation trust** en
    - **Description:** `Validate from PRs`
 8. **Add**
 
-> **Alternativa via Azure CLI:**
+> **Alternativa via Azure CLI (Linux/Mac/WSL — bash):**
 >
 > ```bash
 > APP_ID=$(az ad app list --display-name "sp-github-actions-helpsphere" --query "[0].appId" -o tsv)
@@ -375,7 +378,7 @@ Os 3 IDs (Tenant, Subscription, Client) precisam virar **secrets** do repo `help
 
 <!-- screenshot: passo-1.5-github-secrets.png -->
 
-> **Alternativa via gh CLI:**
+> **Alternativa via gh CLI (Linux/Mac/WSL — bash):**
 >
 > ```bash
 > TENANT_ID=$(az account show --query tenantId -o tsv)
@@ -813,7 +816,7 @@ output rgScope string = rgScope
 >
 > Aceite que policies sem UAA na subscription terão escopo limitado ao RG do lab — não é production-grade, mas é o que dá pra fazer em conta pessoal restrita. Em sub corporativa (ex.: TFTEC), use o caminho UAA original.
 
-> **Como deployar este módulo (separado do main.bicep):**
+> **Como deployar este módulo (separado do main.bicep) — Linux/Mac/WSL bash:**
 >
 > ```bash
 > SP_OBJECT_ID=$(az ad sp show --id $(az ad sp list --display-name "sp-github-actions-helpsphere" --query "[0].appId" -o tsv) --query id -o tsv)
@@ -874,11 +877,11 @@ output rgScope string = rgScope
 
 Antes de commitar, valide o Bicep localmente — um what-if mostra quais recursos seriam criados/modificados sem deployar de fato.
 
-```bash
+```powershell
 # What-if (preview do que seria deployed)
-az deployment group what-if \
-  --resource-group rg-lab-avancado \
-  --template-file infra/main.bicep \
+az deployment group what-if `
+  --resource-group rg-lab-avancado `
+  --template-file infra/main.bicep `
   --parameters infra/envs/dev.parameters.json
 ```
 
@@ -888,7 +891,7 @@ Saída esperada: lista de recursos a criar com cor verde (`+ Create`). Se houver
 
 ## Passo 2.8 — Commit
 
-```bash
+```powershell
 git add infra/
 git commit -m "feat: Bicep templates parametrizados para 3 envs"
 git push origin main
@@ -984,16 +987,18 @@ jobs:
 5. Canto superior direito → **Commit changes...** → escolha "Commit directly to the `main` branch" → **Commit changes**
 6. GitHub muda para `https://github.com/<user>/helpsphere-ia/actions` — você verá o workflow CI listado e (se já houver Bicep no repo) ele dispara automático
 
-> **Alternativa via VS Code + git push:**
+> **Alternativa via VS Code + git push — PowerShell:**
 >
-> ```bash
+> ```powershell
 > # No seu clone local
-> mkdir -p .github/workflows
+> New-Item -ItemType Directory -Force -Path .github/workflows
 > # Cole o YAML acima em .github/workflows/ci.yml
 > git add .github/workflows/ci.yml
 > git commit -m "feat: GitHub Actions CI workflow"
 > git push origin main
 > ```
+>
+> **Linux/Mac/WSL:** troque `New-Item -ItemType Directory -Force -Path` por `mkdir -p`.
 
 ## Passo 3.2 — Criar workflow `cd-staging.yml`
 
@@ -1243,7 +1248,7 @@ Quando você commitou o `cd-staging.yml` no Passo 3.2 (commit em `main`), o work
 
 7. Deploy continua, smoke test executa, ✅ Success
 
-> **Alternativa via gh CLI (trigger workflow):**
+> **Alternativa via gh CLI (Linux/Mac/WSL — bash, trigger workflow):**
 >
 > ```bash
 > gh workflow run cd-prod.yml --ref main -f confirm=deploy-prod
@@ -1279,7 +1284,7 @@ Quando você commitou o `cd-staging.yml` no Passo 3.2 (commit em `main`), o work
 
 <!-- screenshot: passo-4.1-apim-online.png -->
 
-> **Alternativa via Azure CLI (polling):**
+> **Alternativa via Azure CLI (Linux/Mac/WSL — bash, polling):**
 >
 > ```bash
 > # Verifica state uma vez
@@ -1301,13 +1306,14 @@ Quando você commitou o `cd-staging.yml` no Passo 3.2 (commit em `main`), o work
 > Esse passo importa a Function App `func-helpsphere-agent` que foi criada no **Lab Final**. Se você fez Lab Final em sequência e rodou `az group delete` no fim (cleanup obrigatório do Lab Final, ~R$ 0/dia poupados), **este recurso não existe mais**. Você tem 3 opções:
 >
 > - **(a) Re-provisionar mock rapidamente via Bicep `func-mock.bicep` (recomendado, ~3min):** placeholder Function App com endpoint `/api/agent/chat` retornando JSON 200 estático. Suficiente pra validar import APIM + policies inbound (JWT, rate-limit, CORS) sem 502 do backend. Bicep fornecido em `infra-preaulas/lab-avancado/func-mock.bicep`. Deploy:
->   ```bash
->   az deployment group create \
->     --resource-group rg-lab-avancado \
->     --template-file infra-preaulas/lab-avancado/func-mock.bicep \
+>   ```powershell
+>   az deployment group create `
+>     --resource-group rg-lab-avancado `
+>     --template-file infra-preaulas/lab-avancado/func-mock.bicep `
 >     --parameters location=eastus2
 >   # Depois: func azure functionapp publish func-helpsphere-agent --python  (~2min, código no header do Bicep)
 >   ```
+>   **Linux/Mac/WSL:** troque `` ` `` (backtick) por `\` (backslash) no final de linha.
 >
 > - **(b) Recriar Lab Final Parte 3 só pra esse passo (~20min):** retoma do Lab Final apenas o Function App + Foundry agent registration. Útil se você quer testar APIM + Content Safety + Foundry real end-to-end. Mais lento, mais caro (~R$ 5 a mais), mais realista.
 >
@@ -1332,7 +1338,7 @@ Quando você commitou o `cd-staging.yml` no Passo 3.2 (commit em `main`), o work
 
 <!-- screenshot: passo-4.2-apim-import-api-function.png -->
 
-> **Alternativa via Azure CLI:**
+> **Alternativa via Azure CLI (Linux/Mac/WSL — bash):**
 >
 > ```bash
 > FUNC_ID=$(az functionapp show -n func-helpsphere-agent -g rg-lab-avancado --query id -o tsv)
@@ -1447,7 +1453,7 @@ Quando você commitou o `cd-staging.yml` no Passo 3.2 (commit em `main`), o work
 
 <!-- screenshot: passo-4.4-apim-test-blade.png -->
 
-> **Alternativa via curl externo:**
+> **Alternativa via curl externo (Linux/Mac/WSL — bash):**
 >
 > ```bash
 > APIM_URL=$(az apim show -n apim-helpsphere-staging -g rg-lab-avancado --query gatewayUrl -o tsv)
@@ -1492,7 +1498,7 @@ O recurso `cs-helpsphere-staging` foi criado pelo módulo `content-safety.bicep`
 
 <!-- screenshot: passo-5.1-content-safety-keys.png -->
 
-> **Alternativa via Azure CLI:**
+> **Alternativa via Azure CLI (Linux/Mac/WSL — bash):**
 >
 > ```bash
 > az resource show \
@@ -1615,7 +1621,7 @@ A Function precisa das vars `CS_ENDPOINT` e `CS_KEY` para chamar Content Safety.
 
 <!-- screenshot: passo-5.2-function-env-vars-cs.png -->
 
-> **Alternativa via Azure CLI:**
+> **Alternativa via Azure CLI (Linux/Mac/WSL — bash):**
 >
 > ```bash
 > CS_ENDPOINT=$(az cognitiveservices account show -n cs-helpsphere-staging -g rg-lab-avancado --query "properties.endpoint" -o tsv)
@@ -1663,11 +1669,13 @@ if blocked:
 
 **Localmente (publish da Function via Functions Core Tools):**
 
-```bash
-cd src/functions/agent/
-FUNC_AGENT_NAME=$(az functionapp list -g rg-lab-avancado --query "[?starts_with(name, 'func-helpsphere-agent')].name" -o tsv)
-func azure functionapp publish $FUNC_AGENT_NAME --python
+```powershell
+Set-Location src/functions/agent/
+$FuncAgentName = az functionapp list -g rg-lab-avancado --query "[?starts_with(name, 'func-helpsphere-agent')].name" -o tsv
+func azure functionapp publish $FuncAgentName --python
 ```
+
+> **Linux/Mac/WSL:** troque `Set-Location` por `cd`, e `$FuncAgentName = az ...` por `FUNC_AGENT_NAME=$(az ...)` (atribuição inline bash).
 
 **No Portal Azure (verificar metrics chegando):**
 
@@ -1727,17 +1735,19 @@ func azure functionapp publish $FUNC_AGENT_NAME --python
 
 **Localmente (deploy do bootstrap subscription-scoped):**
 
-```bash
-SP_OBJECT_ID=$(az ad sp show \
-  --id $(az ad sp list --display-name "sp-github-actions-helpsphere" --query "[0].appId" -o tsv) \
-  --query id -o tsv)
+```powershell
+$SpAppId = az ad sp list --display-name "sp-github-actions-helpsphere" --query "[0].appId" -o tsv
+$SpObjectId = az ad sp show --id $SpAppId --query id -o tsv
 
-az deployment sub create \
-  --location eastus2 \
-  --template-file infra/modules/policy.bicep \
-  --parameters githubActionsSpObjectId=$SP_OBJECT_ID targetRgName=rg-lab-avancado \
-  --name "policy-bootstrap-$(date +%s)"
+$Timestamp = [int][double]::Parse((Get-Date -UFormat %s))
+az deployment sub create `
+  --location eastus2 `
+  --template-file infra/modules/policy.bicep `
+  --parameters githubActionsSpObjectId=$SpObjectId targetRgName=rg-lab-avancado `
+  --name "policy-bootstrap-$Timestamp"
 ```
+
+> **Linux/Mac/WSL:** troque `$Var = az ...` por `VAR=$(az ...)`, `` ` `` (backtick) por `\` (backslash) no final de linha, e `Get-Date -UFormat %s` por `$(date +%s)`.
 
 **No Portal Azure (verificar Policy Assignments criadas):**
 
@@ -1754,7 +1764,7 @@ az deployment sub create \
 
 6. Menu lateral **Policy** → **Authoring** → **Definitions** → filtrar por **Type: Custom** → vê as 3 policy definitions criadas no nível subscription (não RG)
 
-> **Alternativa via Azure CLI (ver assignments):**
+> **Alternativa via Azure CLI (Linux/Mac/WSL — bash, ver assignments):**
 >
 > ```bash
 > az policy assignment list --resource-group rg-lab-avancado --output table
@@ -1779,7 +1789,7 @@ A maneira mais didática de validar uma policy `deny` é tentando criar um recur
 
 <!-- screenshot: passo-6.2-policy-deny-banner.png -->
 
-> **Alternativa via Azure CLI:**
+> **Alternativa via Azure CLI (Linux/Mac/WSL — bash):**
 >
 > ```bash
 > # Deve falhar com policy denial
@@ -1817,7 +1827,7 @@ A maneira mais didática de validar uma policy `deny` é tentando criar um recur
 
 <!-- screenshot: passo-6.3-cost-budget-created.png -->
 
-> **Alternativa via Azure CLI:**
+> **Alternativa via Azure CLI (Linux/Mac/WSL — bash):**
 >
 > ```bash
 > az consumption budget create \
@@ -1855,7 +1865,7 @@ A maneira mais didática de validar uma policy `deny` é tentando criar um recur
 
 <!-- screenshot: passo-6.4-action-group-created.png -->
 
-> **Alternativa via Azure CLI:**
+> **Alternativa via Azure CLI (Linux/Mac/WSL — bash):**
 >
 > ```bash
 > az monitor action-group create \
@@ -1978,7 +1988,7 @@ if __name__ == "__main__":
 
 ## Passo 7.2 — `docs/RUNBOOK.md`
 
-```markdown
+````markdown
 # RUNBOOK — HelpSphere IA
 
 ## Contatos de incidente
@@ -2014,12 +2024,14 @@ if __name__ == "__main__":
 
 ## Procedimentos
 
-### Rollback de deploy prod
-```bash
-PREV_DEPLOYMENT=$(az deployment group list -g rg-lab-avancado --query "[?starts_with(name, 'prod-')] | [1].name" -o tsv)
-az deployment group create \
-  --resource-group rg-lab-avancado \
-  --template-uri "https://management.azure.com$PREV_DEPLOYMENT/exportTemplate" \
+### Rollback de deploy prod (PowerShell 7+)
+```powershell
+$PrevDeployment = az deployment group list -g rg-lab-avancado `
+  --query "[?starts_with(name, 'prod-')] | [1].name" -o tsv
+
+az deployment group create `
+  --resource-group rg-lab-avancado `
+  --template-uri "https://management.azure.com$PrevDeployment/exportTemplate" `
   --rollback-on-error true
 ```
 
@@ -2041,10 +2053,12 @@ az deployment group create \
 - `safety.hit` — alvo: < 1% das requests
 - Latency p95 — alvo: < 3s
 - SLO availability — alvo: 99.5%
-```
+````
+
+> **Nota sobre fences aninhadas:** o wrapper externo usa 4 backticks (`` ```` ``) propositadamente para permitir o fence interno ```` ```powershell ```` (3 backticks) sem quebrar a renderização. Padrão markdown CommonMark.
 
 Commit:
-```bash
+```powershell
 git add docs/RUNBOOK.md eval/
 git commit -m "feat: RUNBOOK e eval pipeline completo"
 git push origin main
@@ -2127,26 +2141,28 @@ Antes de partir pra cleanup, esta seção lista os 7 erros mais frequentes que a
 7. (Se Lab Inter ou Lab Final ainda têm RGs ativos, repita pra `rg-lab-intermediario` e `rg-lab-final`)
 8. **NÃO delete `rg-helpsphere-ia`** ainda — fundação SaaS é usada na Apresentação Executiva
 
-> **Alternativa via Azure CLI (mais rápido):**
+> **Alternativa via Azure CLI (mais rápido) — PowerShell:**
 >
-> ```bash
+> ```powershell
 > # Deletar Lab Avançado
 > az group delete --name rg-lab-avancado --yes --no-wait
 >
 > # Deletar Lab Intermediário se ainda existir (não deveria)
-> az group delete --name rg-lab-intermediario --yes --no-wait 2>/dev/null
+> az group delete --name rg-lab-intermediario --yes --no-wait 2>$null
 >
 > # Deletar Lab Final se ainda existir
-> az group delete --name rg-lab-final --yes --no-wait 2>/dev/null
+> az group delete --name rg-lab-final --yes --no-wait 2>$null
 >
 > # Por último (após terminar Apresentação Executiva), deletar fundação
 > # az group delete --name rg-helpsphere-ia --yes --no-wait
 >
-> echo "✅ Cleanup do Lab Avançado iniciado"
+> Write-Host "✅ Cleanup do Lab Avançado iniciado"
 > ```
+>
+> **Linux/Mac/WSL:** troque `2>$null` por `2>/dev/null` e `Write-Host` por `echo`.
 
 Verificar via Portal: refresh **Resource groups** → `rg-lab-avancado` deve sumir da lista após ~30min. Ou via CLI:
-```bash
+```powershell
 az group exists --name rg-lab-avancado
 # false = deletado
 ```
@@ -2164,7 +2180,7 @@ Se você não vai mais usar o GitHub Actions ou rotará credenciais regularmente
 
 <!-- screenshot: passo-7.5-delete-app-registration.png -->
 
-> **Alternativa via Azure CLI:**
+> **Alternativa via Azure CLI (Linux/Mac/WSL — bash):**
 >
 > ```bash
 > az ad sp delete --id $(az ad sp list --display-name "sp-github-actions-helpsphere" --query "[0].appId" -o tsv)
