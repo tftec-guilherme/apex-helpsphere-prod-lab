@@ -1,0 +1,196 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/main/schemas/v1.0/azure.yaml.json
+
+# HelpSphere Lab Avançado — Apex Retail | Disciplina 06 (Bloco 5+6)
+# Forked incrementalmente: apex-helpsphere (base SaaS) → apex-rag-lab (Lab Inter + RAG) →
+# apex-helpsphere-prod-lab (Lab Avançado + melhorias CRUD + APIM/Policy/Content Safety).
+# Ver CHANGELOG.md para evolução incremental e DECISION-LOG.md para decisões cravadas.
+name: rg-lab-avancado
+metadata:
+  template: azure-search-openai-demo@0.0.3
+requiredVersions:
+  azd: ">= 1.23.6"
+
+# Lab Avançado: stack base (Container Apps + SQL + ACR + AI Search + Foundry) provisionado
+# por infra-base/main.bicep (herdado de apex-rag-lab). Adições do Lab Av (APIM Developer +
+# 3 Azure Policies + Content Safety + App Insights custom + dashboards) ficam em infra/
+# como bootstrap separado conforme guia Portal-first em docs/.
+infra:
+  path: infra-base
+  module: main
+services:
+  # HelpSphere — Story 06.5c.3 (B-PRACTICAL): tickets-service hybrid microservice
+  # .NET 10 Minimal API — entrega Story 06.5c.2 (5 endpoints REST + JWT/tenant_id).
+  # Image build via remoteBuild (azd → ACR Tasks → Dockerfile multi-stage alpine).
+  # ACA app provisionado pelo Bicep (módulo acaTickets em main.bicep).
+  # language=docker (não dotnet) porque .csproj está em src/TicketsService.Api/
+  # (estrutura solution multi-projeto), mas Dockerfile fica no root da solution
+  # com COPY paths relativos esperando context=app/tickets-service/.
+  # azd com language=docker pula detecção .csproj e usa Dockerfile direto.
+  tickets-service:
+    project: ./app/tickets-service
+    language: docker
+    host: containerapp
+    docker:
+      remoteBuild: true
+  # HelpSphere — Story 06.26: frontend agora vive em host separado (App Service Linux Node 22)
+  # conforme diagrama de arquitetura do Lab Inter (3 hosts: App Service + 2 ACA).
+  # Build Vite roda via hook `prepackage` deste service (npm install && npm run build),
+  # publica conteúdo de app/frontend/build/ no App Service. Backend consome só /chat e /ask
+  # via CORS (configurado no Bicep app-helpsphere-{env}).
+  frontend:
+    project: ./app/frontend
+    language: js
+    host: appservice
+    hooks:
+      prepackage:
+        # Story 06.26 v4: gera .env.production ANTES do vite build.
+        # Vite le .env.production automaticamente — nao depende de shell env
+        # propagation (que falhava em alguns ambientes azd). Mais robusto que
+        # `$env:VITE_BACKEND_URI = ...` que nao propagava pro npm sub-process.
+        windows:
+          shell: pwsh
+          run: |
+            $uri = azd env get-value BACKEND_URI
+            Write-Host "Generating .env.production with VITE_BACKEND_URI=$uri"
+            Set-Content -Path .env.production -Value "VITE_BACKEND_URI=$uri"
+            npm install
+            npm run build
+          interactive: false
+          continueOnError: false
+        posix:
+          shell: sh
+          run: |
+            BACKEND_URI=$(azd env get-value BACKEND_URI)
+            echo "Generating .env.production with VITE_BACKEND_URI=$BACKEND_URI"
+            echo "VITE_BACKEND_URI=$BACKEND_URI" > .env.production
+            npm install && npm run build
+          interactive: false
+          continueOnError: false
+  # HelpSphere — Story 06.26: Vite build movido pro service `frontend` (App Service Linux Node 22).
+  # Backend agora serve só API (/chat, /ask, /auth_setup, etc) — sem servir bundle estático.
+  # Hook `prebuild` (que rodava `cd ../frontend; npm install; npm run build`) foi REMOVIDO.
+  # Hook `prepackage` mantido pq referenciado em cenário host=appservice (legacy upstream).
+  backend:
+    project: ./app/backend
+    language: py
+    # Please check docs/azure_container_apps.md for more information on how to deploy to Azure Container Apps
+    host: containerapp
+    docker:
+      remoteBuild: true
+    # Please check docs/azure_app_service.md for more information on how to deploy to Azure App Service
+    # host: appservice
+    hooks:
+      # This hook is called when App Service is the host
+      prepackage:
+        windows:
+          shell: pwsh
+          run:  cd ../frontend;npm install;npm run build
+          interactive: false
+          continueOnError: false
+        posix:
+          shell: sh
+          run:  cd ../frontend;npm install;npm run build
+          interactive: false
+          continueOnError: false
+  document-extractor:
+    project: ./app/functions/document_extractor
+    language: py
+    host: function
+    condition: ${USE_CLOUD_INGESTION}
+    hooks:
+      prepackage:
+        windows:
+          shell: pwsh
+          run: ../../../scripts/copy_prepdocslib.ps1
+          interactive: false
+          continueOnError: false
+        posix:
+          shell: sh
+          run: ../../../scripts/copy_prepdocslib.sh
+          interactive: false
+          continueOnError: false
+  figure-processor:
+    project: ./app/functions/figure_processor
+    language: py
+    host: function
+    condition: ${USE_CLOUD_INGESTION}
+    hooks:
+      prepackage:
+        windows:
+          shell: pwsh
+          run: ../../../scripts/copy_prepdocslib.ps1
+          interactive: false
+          continueOnError: false
+        posix:
+          shell: sh
+          run: ../../../scripts/copy_prepdocslib.sh
+          interactive: false
+          continueOnError: false
+  text-processor:
+    project: ./app/functions/text_processor
+    language: py
+    host: function
+    condition: ${USE_CLOUD_INGESTION}
+    hooks:
+      prepackage:
+        windows:
+          shell: pwsh
+          run: ../../../scripts/copy_prepdocslib.ps1
+          interactive: false
+          continueOnError: false
+        posix:
+          shell: sh
+          run: ../../../scripts/copy_prepdocslib.sh
+          interactive: false
+          continueOnError: false
+hooks:
+    preprovision:
+      windows:
+        shell: pwsh
+        run: ./scripts/auth_init.ps1
+        interactive: true
+        continueOnError: false
+      posix:
+        shell: sh
+        run: ./scripts/auth_init.sh
+        interactive: true
+        continueOnError: false
+    postprovision:
+      # HelpSphere — Story 06.5a Sessão 2.3 adiciona sql_init.{ps1,sh} ao final
+      # do hook postprovision (após auth_update + prepdocs do template upstream).
+      # sql_init.* cria USER FROM EXTERNAL PROVIDER para a backend MI, concede
+      # db_datareader + db_datawriter, executa migrations e (opcionalmente) seeds.
+      #
+      # HelpSphere — Story 06.5c.9 Sessão 9.5 (Decisão #21) adiciona
+      # setup_search_index.{ps1,sh} ANTES de prepdocs. Cria gptkbindex (schema
+      # mínimo: id/content/sourcepage/oids/groups) idempotentemente — garante
+      # que backend Python suba mesmo se prepdocs.py falhar/skipar (template
+      # vem sem PDFs em ./data/, então prepdocs sai cedo). prepdocs sobrescreve
+      # com schema completo quando aluno popular ./data/ no Lab Intermediário.
+      #
+      # HelpSphere v2.1.0 (Sessão 9.5, Decisão #22) — `prepdocs.{ps1,sh}` foi
+      # encapsulado em `run_prepdocs.{ps1,sh}` que respeita o param Bicep
+      # `skipPrepdocs` (env var SKIP_PREPDOCS). prepdocs original NÃO foi
+      # modificado para preservar facilidade de merge upstream com
+      # Azure-Samples/azure-search-openai-demo.
+      windows:
+        shell: pwsh
+        run: ./scripts/auth_update.ps1;./scripts/setup_search_index.ps1;./scripts/run_prepdocs.ps1;./scripts/sql_init.ps1
+        interactive: true
+        continueOnError: false
+      posix:
+        shell: sh
+        run: ./scripts/auth_update.sh;./scripts/setup_search_index.sh;./scripts/run_prepdocs.sh;./scripts/sql_init.sh
+        interactive: true
+        continueOnError: false
+    postdeploy:
+      windows:
+        shell: pwsh
+        run: ./scripts/setup_cloud_ingestion.ps1
+        interactive: true
+        continueOnError: false
+      posix:
+        shell: sh
+        run: ./scripts/setup_cloud_ingestion.sh
+        interactive: true
+        continueOnError: false

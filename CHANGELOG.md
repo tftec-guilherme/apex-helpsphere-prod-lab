@@ -6,6 +6,115 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/), 
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-05-19
+
+### Added
+
+**Fork funcional incremental do `apex-rag-lab`** — Lab Avançado agora distribui
+código funcional (frontend React 19 + backend Python Quart + tickets-service .NET 10 +
+Azure Functions ingestion) **partindo do `apex-rag-lab`** (que herda do `apex-helpsphere`
+base). Cada lab passa a ser uma evolução incremental do anterior:
+
+```
+apex-helpsphere (base SaaS multi-tenant)
+      ↓ + RAG (Bloco 4 — Foundry + AI Search + Document Intelligence)
+apex-rag-lab (Lab Inter — fork funcional)
+      ↓ + CRUD melhorias + Bicep additions (APIM + Policy + Content Safety)
+apex-helpsphere-prod-lab (Lab Avançado — fork funcional v0.4.0)
+```
+
+#### Novos diretórios (291 arquivos / ~2 MB)
+
+- **`app/`** (NOVO) — frontend, backend, functions, tickets-service .NET 10
+  herdados de `apex-rag-lab` com 5 melhorias CRUD aplicadas no Lab Avançado.
+- **`data/`** (NOVO) — migrations + seeds + mocks.
+- **`scripts/`** (NOVO) — auth_init, sql_init, setup_search_index, prepdocs etc.
+- **`sample-kb/`** (NOVO) — 8 PDFs Apex Retail (RAG seed).
+- **`tests/`** (NOVO) — xunit (.NET tickets-service) + pytest (Python).
+- **`infra-base/`** (NOVO) — Bicep base do `apex-rag-lab` (Container Apps + SQL +
+  ACR + AI Search + Foundry Hub) provisionado por `azd up`. O `infra/` original
+  (APIM + Policy + Content Safety adições Lab Avançado) **permanece intacto** e
+  continua sendo o foco do guia Portal-first em `docs/`.
+- **`azure.yaml`** (NOVO) — `name: rg-lab-avancado` + `infra.path: infra-base`,
+  permite `azd up` end-to-end igual ao `apex-rag-lab`.
+
+#### 5 melhorias CRUD aplicadas no `app/`
+
+##### Frontend (`app/frontend/src/`)
+
+1. **UI "Novo Ticket"** (`pages/tickets/NewTicket.tsx` NOVO + rota `tickets/new`):
+   anteriormente o botão estava `disabled title="Em breve"`. Agora form completo
+   com validação client-side espelhando `RequestValidators.cs` (subject 5-200,
+   description ≤16k, category/priority enum) + integração `createTicketApi` →
+   redireciona para detalhe do ticket criado.
+
+2. **Fix transition status endpoint** (`pages/tickets/TicketDetail.tsx`):
+   anteriormente `patchStatus` chamava `PUT /api/tickets/{id}` com `{status}` que
+   era **silenciosamente ignorado** pelo backend (`UpdateAsync` não inclui campo
+   `status` no SET). Agora usa `transitionTicketStatusApi` → `POST /transitions`
+   (state machine validada com auto-comment atomicamente).
+
+3. **Add Comment habilitado** (`pages/tickets/TicketDetail.tsx`): MessageBar
+   "Adicionar comentário — Lab Intermediário" substituída por form real com
+   `addCommentApi` real (POST /api/tickets/{id}/comments).
+
+4. **Priority filter server-side** (`pages/tickets/Tickets.tsx` + `api/tickets.ts`):
+   filtro de prioridade migrou de client-side (em `useMemo`) para server-side
+   (query param `priority` + `q`). Garante consistência de paginação (antes
+   filter local podia esvaziar páginas).
+
+5. **UPDATE form completo** (`pages/tickets/TicketDetail.tsx`): edição inline de
+   `subject/description/priority` via botão "Editar" no header do detalhe.
+   `category` permanece IMMUTABLE após criação (DECISION-LOG.md — preserva taxonomia).
+
+##### Backend (`app/tickets-service/src/`)
+
+- **POST /api/tickets/{id}/comments** (NOVO endpoint):
+  - `Endpoints/Models/CreateCommentRequest.cs` — DTO body.
+  - `RequestValidators.ValidateCommentContent` — content 1..4000 chars.
+  - `ICommentsRepository.AddUserCommentAsync` — INSERT user-driven com defesa
+    cross-tenant (SELECT COUNT(1) WHERE tenant_id antes de INSERT).
+  - `CommentsRepository.AddUserCommentAsync` — implementa com fallback SQL Server
+    (`OUTPUT INSERTED`) + SQLite (`last_insert_rowid()`) para testes.
+  - `TicketsEndpoints.AddCommentAsync` — handler com 404 cross-tenant.
+
+- **GET /api/tickets?priority=** (filter expandido):
+  - `TicketFilter.Priority` adicionado ao record.
+  - `RequestValidators.ValidateAndBuildFilter` parseia + valida enum.
+  - `TicketsEndpoints.ListTicketsAsync` aceita `[FromQuery] priority`.
+  - `TicketsRepository.BuildWhereClause` adiciona `priority = @priority`.
+
+### Pedagogical impact
+
+- **Aluno do Lab Avançado** exercita CRUD completo (Create + Read + Update +
+  Transition + Comments) em produção-grade, não apenas read-mostly como no
+  `apex-rag-lab` (que ainda mantém botões desabilitados).
+- **Pipeline incremental Inter→Avançado** fica visível e defensável: "no Lab Inter
+  fizemos `azd up` do RAG; no Lab Avançado adicionamos CRUD pleno + APIM + Policy
+  + Content Safety por cima da mesma base".
+- **Backend .NET 10 production-grade** demonstra padrões enterprise (state machine,
+  defesa cross-tenant, validação manual, transações atômicas) — defensável em
+  audiência sênior.
+
+### QA evidence
+
+- Audit prévio `apex-helpsphere-prod-lab` PowerShell compliance: gate
+  `azure-retail/docs/qa/gates/audit-guia-portal-lab-avancado.yml` PASS_AFTER_FIX
+  commit 38e61f5.
+- Gap analysis produto vs disciplina D06 identificou 3 CRITICAL CRUD findings:
+  Novo Ticket disabled, transition endpoint errado, Add Comment dormente —
+  todas atendidas nesta release v0.4.0.
+
+### Cross-references
+
+- Origem: `apex-rag-lab` HEAD a9fa5fd (snapshot da árvore copiada 2026-05-19).
+- Sister fix: `apex-helpsphere-agente-lab` commit c35f042 (PowerShell fix
+  emergencial cap 00 Lab Final na mesma sessão).
+- `apex-helpsphere` (base): badges CI/CD removidos do README (workflows
+  inexistentes).
+
+---
+
 ## [0.3.2] - 2026-05-19
 
 ### Fixed
